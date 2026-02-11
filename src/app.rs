@@ -30,7 +30,15 @@ impl B24App {
                     peripheral_id,
                     name,
                     rssi,
+                    manufacturer_data,
+                    service_uuids,
                 } => {
+                    // Determine if this is a B24 device:
+                    // Check for Mantracourt manufacturer ID (0x04C3) or B24 config service UUID
+                    let b24_svc = uuids::svc_config();
+                    let is_b24 = service_uuids.contains(&b24_svc)
+                        || manufacturer_data.contains_key(&0x04C3);
+
                     // Deduplicate by peripheral_id
                     let existing = self
                         .state
@@ -43,12 +51,19 @@ impl B24App {
                             dev.name = n.clone();
                         }
                         dev.rssi = rssi;
+                        if is_b24 {
+                            dev.is_b24 = true;
+                        }
+                        dev.manufacturer_data = manufacturer_data;
                     } else {
                         self.state.connection.scanned_devices.push(ScannedDevice {
                             name: name.unwrap_or_else(|| "Unknown".to_string()),
                             data_tag: None,
                             rssi,
                             peripheral_id,
+                            manufacturer_data,
+                            service_uuids,
+                            is_b24,
                         });
                     }
                 }
@@ -107,7 +122,7 @@ impl B24App {
         } else if uuid == uuids::char_battery_thresh() {
             self.state.config.battery_threshold = codec::decode_f32_be(data).ok();
         } else if uuid == uuids::char_view_pin() {
-            self.state.config.view_pin = Some(codec::decode_string(data));
+            self.state.config.view_pin = codec::decode_u32_be(data).ok();
         } else if uuid == uuids::char_serial_number() {
             self.state.config.serial_number = Some(codec::decode_string(data));
         } else if uuid == uuids::char_data_tag() {
@@ -122,7 +137,8 @@ impl B24App {
         } else if uuid == uuids::char_model_name() {
             self.state.config.model_name = Some(codec::decode_string(data));
         } else if uuid == uuids::char_firmware_ver() {
-            self.state.config.firmware_version = Some(codec::decode_string(data));
+            // Firmware version is stored as a float (e.g., 3.01)
+            self.state.config.firmware_version = codec::decode_f32_be(data).ok();
         }
         // Calibration characteristics
         else if uuid == uuids::char_sens_range() {
@@ -219,8 +235,10 @@ impl eframe::App for B24App {
         // Process BLE events
         self.process_ble_events();
 
-        // Request repaint when connected (for live data updates)
-        if self.state.connection.phase == ConnectionPhase::Connected {
+        // Request repaint when connected (live data) or scanning (device discovery)
+        if self.state.connection.phase == ConnectionPhase::Connected
+            || self.state.connection.phase == ConnectionPhase::Scanning
+        {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
@@ -254,31 +272,7 @@ impl eframe::App for B24App {
                 Tab::Connect => ui::connect_tab::show(ui, &mut self.state, &self.ble),
                 Tab::Configuration => ui::config_tab::show(ui, &mut self.state, &self.ble),
                 Tab::Calibration => {
-                    // Show both calibration registers and wizard in same tab
-                    ui.horizontal(|ui| {
-                        ui.heading("Calibration");
-                        ui.separator();
-                        if ui.selectable_label(
-                            self.state.ui.cal_sub_tab == CalSubTab::AutoCal
-                                || self.state.ui.cal_sub_tab == CalSubTab::Multipoint,
-                            "Wizard",
-                        ).clicked() {
-                            // Toggle between showing registers and wizard
-                        }
-                    });
-                    ui.separator();
-
-                    // Split: left = registers, right = wizard
-                    let available = ui.available_width();
-                    ui.horizontal(|ui| {
-                        ui.allocate_ui(egui::vec2(available * 0.5, ui.available_height()), |ui| {
-                            ui::calibration_tab::show(ui, &mut self.state, &self.ble);
-                        });
-                        ui.separator();
-                        ui.allocate_ui(egui::vec2(available * 0.5, ui.available_height()), |ui| {
-                            ui::cal_wizard_tab::show(ui, &mut self.state, &self.ble);
-                        });
-                    });
+                    ui::calibration_tab::show(ui, &mut self.state, &self.ble);
                 }
                 Tab::Live => ui::live_tab::show(ui, &mut self.state, &self.ble),
                 Tab::Log => ui::log_tab::show(ui, &mut self.state, &self.ble),

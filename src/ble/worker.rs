@@ -130,28 +130,23 @@ impl BleWorker {
 
             while let Some(event) = events.next().await {
                 match event {
-                    CentralEvent::DeviceDiscovered(id) => {
-                        // Get peripheral info
+                    CentralEvent::DeviceDiscovered(id) | CentralEvent::DeviceUpdated(id) => {
                         if let Ok(peripheral) = adapter_clone.peripheral(&id).await {
                             let props = peripheral.properties().await.ok().flatten();
                             let name = props.as_ref().and_then(|p| p.local_name.clone());
                             let rssi = props.as_ref().and_then(|p| p.rssi);
+                            let manufacturer_data = props.as_ref()
+                                .map(|p| p.manufacturer_data.clone())
+                                .unwrap_or_default();
+                            let service_uuids = props.as_ref()
+                                .map(|p| p.services.clone())
+                                .unwrap_or_default();
                             let _ = evt_tx.send(BleEvent::DeviceDiscovered {
                                 peripheral_id: id.to_string(),
                                 name,
                                 rssi,
-                            });
-                        }
-                    }
-                    CentralEvent::DeviceUpdated(id) => {
-                        if let Ok(peripheral) = adapter_clone.peripheral(&id).await {
-                            let props = peripheral.properties().await.ok().flatten();
-                            let name = props.as_ref().and_then(|p| p.local_name.clone());
-                            let rssi = props.as_ref().and_then(|p| p.rssi);
-                            let _ = evt_tx.send(BleEvent::DeviceDiscovered {
-                                peripheral_id: id.to_string(),
-                                name,
-                                rssi,
+                                manufacturer_data,
+                                service_uuids,
                             });
                         }
                     }

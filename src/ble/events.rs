@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use uuid::Uuid;
 use crate::ble::error::BleError;
 use crate::protocol::types::DeviceAction;
@@ -10,6 +11,8 @@ pub enum BleEvent {
         peripheral_id: String,
         name: Option<String>,
         rssi: Option<i16>,
+        manufacturer_data: HashMap<u16, Vec<u8>>,
+        service_uuids: Vec<Uuid>,
     },
     /// Scan completed or was stopped
     ScanStopped,

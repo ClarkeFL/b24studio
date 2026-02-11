@@ -42,6 +42,9 @@ pub struct ScannedDevice {
     pub data_tag: Option<String>,
     pub rssi: Option<i16>,
     pub peripheral_id: String,
+    pub manufacturer_data: std::collections::HashMap<u16, Vec<u8>>,
+    pub service_uuids: Vec<uuid::Uuid>,
+    pub is_b24: bool,
 }
 
 // ── Configuration Registers ────────────────────────────────────────
@@ -52,13 +55,13 @@ pub struct ConfigRegisters {
     pub data_rate: Option<u32>,
     pub resolution: Option<u8>,
     pub battery_threshold: Option<f32>,
-    pub view_pin: Option<String>,
+    pub view_pin: Option<u32>,
     pub serial_number: Option<String>,
     pub data_tag: Option<String>,
     pub battery_value: Option<f32>,
     pub system_zero: Option<f32>,
     pub model_name: Option<String>,
-    pub firmware_version: Option<String>,
+    pub firmware_version: Option<f32>,
 }
 
 // ── Calibration Registers ──────────────────────────────────────────
