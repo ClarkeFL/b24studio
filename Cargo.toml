@@ -1,0 +1,42 @@
+[package]
+name = "b24-tool"
+version = "0.1.0"
+edition = "2021"
+description = "Mantracourt B24 BLE Telemetry Configuration & Calibration Tool"
+
+[dependencies]
+# GUI
+eframe = { version = "0.30", default-features = true }
+egui_extras = "0.30"
+egui_plot = "0.30"
+
+# BLE
+btleplug = "0.11"
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CSV export
+csv = "1"
+chrono = { version = "0.4", features = ["clock"] }
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# UUID
+uuid = { version = "1", features = ["v4"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# File dialogs
+rfd = "0.15"
+
+# Futures for BLE stream
+futures = "0.3"

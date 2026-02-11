@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\\\Users\\\\Fabio\\\\Delphi Measurement\\\\Delphi Measurement - Documents\\\\Tech\\\\Fabio Delphi Data\\\\MANUALS\"\" | find /i \"b24 \")",
+      "Bash(cd:*)",
+      "Bash(dir:*)",
+      "Bash(ls:*)",
+      "Bash(pdftotext:*)",
+      "WebFetch(domain:www.mantracourt.com)",
+      "WebFetch(domain:www.manualslib.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(winget install:*)",
+      "Bash(export PATH=\"$HOME/.cargo/bin:$PATH\")",
+      "Bash(rustc:*)",
+      "Bash(cargo:*)",
+      "Bash(rustup show:*)",
+      "Bash(where:*)",
+      "Bash(find:*)",
+      "Bash(rustup target add:*)",
+      "Bash(rustup default:*)",
+      "Bash(cmd.exe /c \"where /R \"\"C:\\\\Program Files\"\" link.exe 2>nul\")",
+      "Bash(cmd.exe /c \"where /R \"\"C:\\\\Program Files \\(x86\\)\"\" link.exe 2>nul\")"
+    ]
+  }
+}
