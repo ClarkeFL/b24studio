@@ -77,6 +77,28 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
                     .color(egui::Color32::GRAY),
             );
 
+            ui.separator();
+
+            let name_link = ui.add(
+                egui::Label::new(
+                    egui::RichText::new("Fabio")
+                        .size(12.0)
+                        .color(egui::Color32::from_rgb(100, 180, 255)),
+                )
+                .sense(egui::Sense::click()),
+            );
+            if name_link.clicked() {
+                ui.ctx().open_url(egui::OpenUrl::new_tab(
+                    "https://au.linkedin.com/in/fabio-liesching-0b38ba128",
+                ));
+            }
+            name_link.on_hover_text("View LinkedIn profile");
+            ui.label(
+                egui::RichText::new("Built by")
+                    .size(12.0)
+                    .color(egui::Color32::GRAY),
+            );
+
             if let Some(ref latest) = state.ui.update_available {
                 ui.separator();
                 let link = ui.add(

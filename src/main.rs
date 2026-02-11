@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![windows_subsystem = "windows"]
 
 mod protocol;
 mod ble;

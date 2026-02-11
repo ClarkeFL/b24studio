@@ -39,7 +39,14 @@
       "WebFetch(domain:federicoterzi.com)",
       "WebFetch(domain:gist.github.com)",
       "Bash(git pull:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git status:*)",
+      "Bash(git push:*)",
+      "Bash(curl:*)",
+      "Bash(/tmp/innosetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=\"C:\\\\Program Files \\(x86\\)\\\\Inno Setup 6\")",
+      "Bash(echo:*)",
+      "Bash(\"C:/Program Files \\(x86\\)/Inno Setup 6/ISCC.exe\" installer/b24-tool-setup.iss)",
+      "Bash(\"C:/Program Files \\(x86\\)/Inno Setup 6/ISCC.exe\":*)"
     ]
   }
 }
