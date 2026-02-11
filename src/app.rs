@@ -72,11 +72,48 @@ impl B24App {
                             name: name.unwrap_or_else(|| "Unknown".to_string()),
                             data_tag: None,
                             rssi,
-                            peripheral_id,
+                            peripheral_id: peripheral_id.clone(),
                             manufacturer_data,
                             service_uuids,
                             is_b24,
                         });
+                    }
+
+                    // If view mode is active (advertising), decode the advertising data
+                    if self.state.ui.view_mode.active
+                        && self.state.ui.view_mode.source == ViewSource::Advertising
+                    {
+                        if let Some(ref view_pid) = self.state.ui.view_mode.peripheral_id {
+                            if *view_pid == peripheral_id {
+                                // Find this device's manufacturer data
+                                if let Some(dev) = self.state.connection.scanned_devices
+                                    .iter()
+                                    .find(|d| d.peripheral_id == peripheral_id)
+                                {
+                                    if let Some(raw) = dev.manufacturer_data.get(&0x04C3) {
+                                        if let Some(decoded) = codec::decode_advertising(
+                                            raw,
+                                            &self.state.ui.view_mode.view_pin,
+                                        ) {
+                                            self.state.ui.view_mode.current_value = Some(decoded.value);
+                                            self.state.ui.view_mode.current_units = Some(decoded.units);
+                                            self.state.ui.view_mode.current_status =
+                                                Some(StatusByte::from_byte(decoded.status));
+                                            self.state.ui.view_mode.data_tag = Some(decoded.data_tag);
+
+                                            // Push to history
+                                            let start = self.state.ui.view_mode.start_time
+                                                .get_or_insert_with(std::time::Instant::now);
+                                            let elapsed = start.elapsed().as_secs_f64();
+                                            self.state.ui.view_mode.history.push_back((elapsed, decoded.value));
+                                            if self.state.ui.view_mode.history.len() > 2000 {
+                                                self.state.ui.view_mode.history.pop_front();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 BleEvent::ScanStopped => {
@@ -213,6 +250,11 @@ impl B24App {
             self.state.calibration.lin_points = codec::decode_u8(data).ok();
         } else if uuid == uuids::char_base_value() {
             self.state.calibration.base_value = codec::decode_f32_be(data).ok();
+            // If the wizard is waiting for an acquisition, feed the value to it
+            if self.state.ui.cal_wizard.waiting_for_acquire {
+                self.state.ui.cal_wizard.acquired_base = self.state.calibration.base_value;
+                self.state.ui.cal_wizard.waiting_for_acquire = false;
+            }
         } else if uuid == uuids::char_base_units() {
             self.state.calibration.base_units = codec::decode_u8(data).ok();
         } else if uuid == uuids::char_data_gain() {
@@ -295,11 +337,12 @@ impl eframe::App for B24App {
         // Process BLE events
         self.process_ble_events();
 
-        // Request repaint when connected, scanning, connecting, or pending BLE operations (spinners)
+        // Request repaint when connected, scanning, connecting, view mode, or pending BLE operations
         if self.state.connection.phase == ConnectionPhase::Connected
             || self.state.connection.phase == ConnectionPhase::Scanning
             || self.state.connection.phase == ConnectionPhase::Connecting
             || self.state.has_pending()
+            || self.state.ui.view_mode.active
         {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }

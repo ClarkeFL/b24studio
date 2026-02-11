@@ -101,3 +101,54 @@ pub fn xor_advertising(data: &mut [u8], seed: &[u8; 10]) {
         *byte ^= seed[i % 10];
     }
 }
+
+/// Decoded B24 advertising packet data
+#[derive(Debug, Clone)]
+pub struct DecodedAdvert {
+    pub data_tag: u16,
+    pub status: u8,
+    pub units: u8,
+    pub value: f32,
+}
+
+/// Decode a B24 advertising packet from manufacturer data (key 0x04C3).
+///
+/// B24 advert format (after XOR decoding):
+///   Byte 0:   Format ID (0x01)
+///   Bytes 1-2: Data Tag (u16 BE)
+///   Byte 3:   Status (u8)
+///   Byte 4:   Units (u8)
+///   Bytes 5-8: Data Value (IEEE 754 f32 BE)
+///   Bytes 9-12: Data Tag repeated (verification)
+///
+/// All bytes are XOR-encoded with the effective seed (base seed ^ View PIN).
+pub fn decode_advertising(raw: &[u8], view_pin: &str) -> Option<DecodedAdvert> {
+    if raw.len() < 9 {
+        return None;
+    }
+    let mut data = raw.to_vec();
+    let seed = compute_xor_seed(view_pin);
+    xor_advertising(&mut data, &seed);
+
+    // Validate format ID
+    if data[0] != 0x01 {
+        return None;
+    }
+
+    let data_tag = u16::from_be_bytes([data[1], data[2]]);
+    let status = data[3];
+    let units = data[4];
+    let value = f32::from_be_bytes([data[5], data[6], data[7], data[8]]);
+
+    // Basic validation: reject NaN/Infinity as likely wrong PIN
+    if value.is_nan() || value.is_infinite() {
+        return None;
+    }
+
+    Some(DecodedAdvert {
+        data_tag,
+        status,
+        units,
+        value,
+    })
+}

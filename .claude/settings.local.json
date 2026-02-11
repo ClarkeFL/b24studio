@@ -26,7 +26,8 @@
       "Bash(cmd.exe:*)",
       "Bash(pip install:*)",
       "Bash(python:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(python3:*)"
     ]
   }
 }

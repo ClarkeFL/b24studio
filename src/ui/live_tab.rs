@@ -1,12 +1,24 @@
 use eframe::egui;
 use egui_plot::{Plot, Line, PlotPoints};
-use crate::state::AppState;
+use crate::state::{AppState, ViewSource, Tab};
 use crate::ble::manager::BleHandle;
 use crate::protocol::types::DataUnits;
 use crate::ui::widgets::status_indicator;
 
 pub fn show(ui: &mut egui::Ui, state: &mut AppState, _ble: &BleHandle) {
-    ui.heading("Live Data");
+    ui.horizontal(|ui| {
+        ui.heading("Live Data");
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.add_sized([140.0, 28.0], egui::Button::new(
+                egui::RichText::new("Fullscreen View").size(14.0)
+            ).fill(egui::Color32::from_rgb(50, 100, 60))).clicked() {
+                state.ui.view_mode.active = true;
+                state.ui.view_mode.source = ViewSource::Connected;
+                state.ui.view_mode.device_name = "Connected Device".to_string();
+                state.ui.active_tab = Tab::Connect;
+            }
+        });
+    });
     ui.separator();
 
     // Large current value display

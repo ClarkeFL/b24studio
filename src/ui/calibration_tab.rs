@@ -1,10 +1,10 @@
 use eframe::egui;
 use uuid::Uuid;
-use crate::state::{AppState, CalSubTab};
+use crate::state::{AppState, CalSubTab, WizardPhase};
 use crate::ble::commands::BleCommand;
 use crate::ble::manager::BleHandle;
 use crate::protocol::{uuids, codec};
-use crate::protocol::types::{DeviceAction, AdvancedParam, SensitivityRange, DataUnits};
+use crate::protocol::types::{DeviceAction, AdvancedParam};
 use crate::protocol::calibration;
 
 pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
@@ -14,18 +14,18 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
     ui.horizontal(|ui| {
         ui.heading("Calibration");
         ui.add_space(16.0);
-        ui.selectable_value(&mut state.ui.cal_sub_tab, CalSubTab::AutoCal, "Registers & Auto Cal");
-        ui.selectable_value(&mut state.ui.cal_sub_tab, CalSubTab::Multipoint, "Advanced & Linearisation");
+        ui.selectable_value(&mut state.ui.cal_sub_tab, CalSubTab::AutoCal, "Auto Calibration");
+        ui.selectable_value(&mut state.ui.cal_sub_tab, CalSubTab::ManualCal, "Manual Calibration");
     });
     ui.separator();
 
     match state.ui.cal_sub_tab {
-        CalSubTab::AutoCal => show_registers_and_autocal(ui, state, ble),
-        CalSubTab::Multipoint => show_advanced_and_lin(ui, state, ble),
+        CalSubTab::AutoCal => show_auto_cal(ui, state, ble),
+        CalSubTab::ManualCal => show_manual_cal(ui, state, ble),
     }
 }
 
-// ── Helpers ────────────────────────────────────────────────────────
+// -- Helpers ----------------------------------------------------------------
 
 fn section_header(ui: &mut egui::Ui, title: &str) {
     ui.add_space(4.0);
@@ -60,331 +60,484 @@ fn adv_value_or_spinner(ui: &mut egui::Ui, text: &str, index: u8, state: &AppSta
     }
 }
 
-// ── AutoCal Sub-tab ────────────────────────────────────────────────
+// -- Auto Calibration Wizard ------------------------------------------------
 
-fn show_registers_and_autocal(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
+fn show_auto_cal(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.add_space(8.0);
 
-        // ── Row 1: Calibration Registers (left) | Auto Cal Wizard (right)
-        ui.columns(2, |cols| {
-            // LEFT: Calibration Registers
-            cols[0].horizontal(|ui| {
-                section_header(ui, "Calibration Registers");
-                ui.add_space(16.0);
-                if ui.button("Read All").clicked() {
-                    send_tracked(state, ble, BleCommand::ReadAll(uuids::all_calibration_uuids()));
+        match state.ui.cal_wizard.phase {
+            WizardPhase::Setup => show_wizard_setup(ui, state),
+            WizardPhase::CaptureZero => show_wizard_capture_zero(ui, state, ble),
+            WizardPhase::CapturePoint => show_wizard_capture_point(ui, state, ble),
+            WizardPhase::Complete => show_wizard_complete(ui, state),
+        }
+
+        // Results table (shown during CapturePoint and Complete phases)
+        if !state.ui.cal_wizard.results.is_empty() {
+            ui.add_space(16.0);
+            section_header(ui, "Calibration Results");
+            show_results_table(ui, state);
+        }
+    });
+}
+
+// -- Phase: Setup -----------------------------------------------------------
+
+fn show_wizard_setup(ui: &mut egui::Ui, state: &mut AppState) {
+    section_header(ui, "Auto Calibration Wizard");
+
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(
+            "This wizard guides you through calibrating the B24 sensor step by step.\n\
+             It will capture a zero/reference reading, then each calibration point in sequence,\n\
+             and write the linearisation coefficients to the device."
+        ).size(14.0)
+    );
+    ui.add_space(12.0);
+
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Number of calibration points:").size(15.0));
+        ui.add_space(8.0);
+        ui.add_sized([60.0, 30.0], egui::TextEdit::singleline(&mut state.ui.cal_wizard.total_points)
+            .hint_text("1"));
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new("(1 = simple two-point, up to 15 for multipoint)").size(13.0)
+            .color(egui::Color32::GRAY));
+    });
+
+    ui.add_space(16.0);
+
+    let total: u32 = state.ui.cal_wizard.total_points.parse().unwrap_or(0);
+    let valid = total >= 1 && total <= 15;
+
+    ui.horizontal(|ui| {
+        let btn = ui.add_sized([180.0, 36.0], egui::Button::new(
+            egui::RichText::new("Start Calibration").size(16.0)
+        ).fill(egui::Color32::from_rgb(40, 120, 60)));
+        if btn.clicked() && valid {
+            state.ui.cal_wizard.phase = WizardPhase::CaptureZero;
+            state.ui.cal_wizard.current_step = 0;
+            state.ui.cal_wizard.known_value.clear();
+            state.ui.cal_wizard.acquired_base = None;
+            state.ui.cal_wizard.waiting_for_acquire = false;
+            state.ui.cal_wizard.prev_known = 0.0;
+            state.ui.cal_wizard.prev_base = 0.0;
+            state.ui.cal_wizard.results.clear();
+            state.ui.cal_wizard.pending_gain = None;
+            state.ui.cal_wizard.pending_offset = None;
+        }
+
+        if !valid && !state.ui.cal_wizard.total_points.is_empty() {
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("Enter a value between 1 and 15")
+                .color(egui::Color32::from_rgb(255, 100, 100)));
+        }
+    });
+}
+
+// -- Phase: CaptureZero (Step 0) -------------------------------------------
+
+fn show_wizard_capture_zero(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
+    let total: u32 = state.ui.cal_wizard.total_points.parse().unwrap_or(1);
+
+    section_header(ui, &format!(
+        "Step 1 of {}: Capture Zero Reference",
+        total + 1
+    ));
+
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(
+            "Apply zero load (or your known reference value) to the sensor,\n\
+             then enter the engineering value and click Acquire."
+        ).size(14.0)
+    );
+    ui.add_space(12.0);
+
+    egui::Grid::new("wizard_zero_grid")
+        .num_columns(3)
+        .spacing([12.0, 8.0])
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new("Known value:").size(15.0));
+            ui.add_sized([150.0, 30.0], egui::TextEdit::singleline(&mut state.ui.cal_wizard.known_value)
+                .hint_text("0.0"));
+
+            let acquire_enabled = !state.ui.cal_wizard.waiting_for_acquire;
+            ui.add_enabled_ui(acquire_enabled, |ui| {
+                if ui.add_sized([120.0, 30.0], egui::Button::new(
+                    egui::RichText::new("Acquire").size(15.0)
+                ).fill(egui::Color32::from_rgb(50, 100, 180))).clicked() {
+                    state.ui.cal_wizard.waiting_for_acquire = true;
+                    state.ui.cal_wizard.acquired_base = None;
+                    send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_base_value()));
                 }
             });
+            ui.end_row();
 
-            let edit_w = 120.0;
-            let label_w = 160.0;
-
-            egui::Grid::new("cal_registers")
-                .num_columns(3)
-                .spacing([12.0, 8.0])
-                .min_col_width(40.0)
-                .show(&mut cols[0], |ui| {
-                    // Sensitivity Range
-                    ui.add_sized([label_w, 26.0], egui::Label::new("Sensitivity Range"));
-                    let sr_str = state.calibration.sensitivity_range
-                        .and_then(SensitivityRange::from_byte)
-                        .map(|s| s.label().to_string())
-                        .unwrap_or_else(|| state.calibration.sensitivity_range
-                            .map(|v| format!("{v}"))
-                            .unwrap_or_else(|| "--".to_string()));
-                    value_or_spinner(ui, &sr_str, uuids::char_sens_range(), state);
-                    ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.sensitivity_range)
-                        .hint_text("0-3"));
-                    ui.end_row();
-
-                    // Data Gain
-                    ui.add_sized([label_w, 26.0], egui::Label::new("Data Gain"));
-                    let dg = state.calibration.data_gain
-                        .map(|v| format!("{v}"))
-                        .unwrap_or_else(|| "--".to_string());
-                    value_or_spinner(ui, &dg, uuids::char_data_gain(), state);
-                    ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.data_gain));
-                    ui.end_row();
-
-                    // Data Offset
-                    ui.add_sized([label_w, 26.0], egui::Label::new("Data Offset"));
-                    let do_ = state.calibration.data_offset
-                        .map(|v| format!("{v}"))
-                        .unwrap_or_else(|| "--".to_string());
-                    value_or_spinner(ui, &do_, uuids::char_data_offset(), state);
-                    ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.data_offset));
-                    ui.end_row();
-
-                    // Coefficient (read-only)
-                    ui.add_sized([label_w, 26.0], egui::Label::new("Coefficient (@ Idx)"));
-                    let cf = state.calibration.coefficient
-                        .map(|v| format!("{v}"))
-                        .unwrap_or_else(|| "--".to_string());
-                    value_or_spinner(ui, &cf, uuids::char_coeff_at_idx(), state);
-                    ui.label(""); // no edit
-                    ui.end_row();
-
-                    // Base Value (read-only)
-                    ui.add_sized([label_w, 26.0], egui::Label::new("Base Value"));
-                    let bv = state.calibration.base_value
-                        .map(|v| format!("{v}"))
-                        .unwrap_or_else(|| "--".to_string());
-                    value_or_spinner(ui, &bv, uuids::char_base_value(), state);
-                    ui.label("");
-                    ui.end_row();
-
-                    // Base Units (read-only)
-                    ui.add_sized([label_w, 26.0], egui::Label::new("Base Units"));
-                    let bu = state.calibration.base_units
-                        .map(|u| {
-                            let du = DataUnits::from_byte(u);
-                            format!("{} ({})", du.label(), u)
-                        })
-                        .unwrap_or_else(|| "--".to_string());
-                    value_or_spinner(ui, &bu, uuids::char_base_units(), state);
-                    ui.label("");
-                    ui.end_row();
-
-                    // Cal PIN
-                    ui.add_sized([label_w, 26.0], egui::Label::new("Calibration PIN"));
-                    let cp = state.calibration.cal_pin
-                        .map(|v| format!("{v}"))
-                        .unwrap_or_else(|| "--".to_string());
-                    value_or_spinner(ui, &cp, uuids::char_cal_pin(), state);
-                    ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.cal_pin));
-                    ui.end_row();
-
-                    // Cal Units (dropdown)
-                    ui.add_sized([label_w, 26.0], egui::Label::new("Calibration Units"));
-                    let cu = state.calibration.cal_units
-                        .map(|u| {
-                            let du = DataUnits::from_byte(u);
-                            format!("{} (0x{:02X})", du.label(), u)
-                        })
-                        .unwrap_or_else(|| "--".to_string());
-                    value_or_spinner(ui, &cu, uuids::char_cal_units(), state);
-
-                    // Dropdown for selecting calibration units
-                    let selected_label = if state.ui.edit.cal_units_display.is_empty() {
-                        "Select unit...".to_string()
-                    } else if let Ok(byte_val) = state.ui.edit.cal_units_display.parse::<u8>() {
-                        DataUnits::from_byte(byte_val).dropdown_label()
-                    } else {
-                        "Select unit...".to_string()
-                    };
-                    egui::ComboBox::from_id_salt("cal_units_combo")
-                        .selected_text(&selected_label)
-                        .width(edit_w)
-                        .show_ui(ui, |ui| {
-                            // Option to clear selection
-                            if ui.selectable_label(state.ui.edit.cal_units_display.is_empty(), "-- None --").clicked() {
-                                state.ui.edit.cal_units_display.clear();
-                            }
-                            for unit in DataUnits::ALL {
-                                let label = unit.dropdown_label();
-                                let byte_str = format!("{}", unit.to_byte());
-                                let is_selected = state.ui.edit.cal_units_display == byte_str;
-                                if ui.selectable_label(is_selected, &label).clicked() {
-                                    state.ui.edit.cal_units_display = byte_str;
-                                }
-                            }
-                        });
-                    ui.end_row();
-                });
-
-            cols[0].add_space(8.0);
-
-            // Save button for calibration registers
-            if cols[0].add_sized([130.0, 32.0], egui::Button::new(
-                egui::RichText::new("Save Registers").size(15.0)
-            ).fill(egui::Color32::from_rgb(40, 120, 60))).clicked() {
-                save_cal_registers(state, ble);
+            ui.label(egui::RichText::new("Raw base value:").size(15.0));
+            if state.ui.cal_wizard.waiting_for_acquire {
+                ui.add(egui::Spinner::new().size(16.0));
+            } else if let Some(base) = state.ui.cal_wizard.acquired_base {
+                ui.label(egui::RichText::new(format!("{base:.6}")).size(15.0).monospace()
+                    .color(egui::Color32::from_rgb(80, 200, 80)));
+            } else {
+                ui.label(egui::RichText::new("--").size(15.0).monospace());
             }
-
-            // RIGHT: Auto Calibration Wizard
-            section_header(&mut cols[1], "Auto Calibration Wizard");
-
-            cols[1].label(
-                egui::RichText::new(format!("Point {}", state.ui.cal_wizard.current_point + 1))
-                    .size(15.0)
-                    .strong(),
-            );
-            cols[1].add_space(4.0);
-
-            egui::Grid::new("autocal_grid")
-                .num_columns(4)
-                .spacing([12.0, 8.0])
-                .min_col_width(60.0)
-                .show(&mut cols[1], |ui| {
-                    ui.label("Low Value:");
-                    ui.add_sized([120.0, 30.0], egui::TextEdit::singleline(&mut state.ui.cal_wizard.low_value)
-                        .hint_text("known low"));
-                    if ui.button("Acquire Low").clicked() {
-                        send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_base_value()));
-                        state.ui.cal_wizard.low_acquired = state.calibration.base_value;
-                    }
-                    let low_str = state.ui.cal_wizard.low_acquired
-                        .map(|v| format!("{v}"))
-                        .unwrap_or_else(|| "0".to_string());
-                    ui.monospace(&low_str);
-                    ui.end_row();
-
-                    ui.label("High Value:");
-                    ui.add_sized([120.0, 30.0], egui::TextEdit::singleline(&mut state.ui.cal_wizard.high_value)
-                        .hint_text("known high"));
-                    if ui.button("Acquire High").clicked() {
-                        send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_base_value()));
-                        state.ui.cal_wizard.high_acquired = state.calibration.base_value;
-                    }
-                    let high_str = state.ui.cal_wizard.high_acquired
-                        .map(|v| format!("{v}"))
-                        .unwrap_or_else(|| "0".to_string());
-                    ui.monospace(&high_str);
-                    ui.end_row();
-                });
-
-            cols[1].add_space(8.0);
-
-            // Computed gain/offset
-            if let (Some(low_base), Some(high_base)) =
-                (state.ui.cal_wizard.low_acquired, state.ui.cal_wizard.high_acquired)
-            {
-                let low_target: f32 = state.ui.cal_wizard.low_value.parse().unwrap_or(0.0);
-                let high_target: f32 = state.ui.cal_wizard.high_value.parse().unwrap_or(0.0);
-
-                if let Some((gain, offset)) =
-                    calibration::two_point_calibration(low_base, high_base, low_target, high_target)
-                {
-                    cols[1].horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(format!("Gain: {gain:.6}"))
-                                .monospace().size(14.0),
-                        );
-                        ui.add_space(16.0);
-                        ui.label(
-                            egui::RichText::new(format!("Offset: {offset:.6}"))
-                                .monospace().size(14.0),
-                        );
-                        ui.add_space(16.0);
-                        if ui.add_sized([100.0, 28.0], egui::Button::new("Apply")).clicked() {
-                            send_tracked(state, ble, BleCommand::WriteCharacteristic {
-                                uuid: uuids::char_data_gain(),
-                                data: codec::encode_f32_be(gain),
-                            });
-                            send_tracked(state, ble, BleCommand::WriteCharacteristic {
-                                uuid: uuids::char_data_offset(),
-                                data: codec::encode_f32_be(offset),
-                            });
-                        }
-                    });
-                }
-            }
-
-            cols[1].add_space(8.0);
-
-            cols[1].horizontal(|ui| {
-                if ui.button("Reset Wizard").clicked() {
-                    state.ui.cal_wizard.low_acquired = None;
-                    state.ui.cal_wizard.high_acquired = None;
-                    state.ui.cal_wizard.low_value.clear();
-                    state.ui.cal_wizard.high_value.clear();
-                    state.ui.cal_wizard.current_point = 0;
-                }
-                if ui.button("Add Point").clicked() {
-                    state.ui.cal_wizard.current_point += 1;
-                    state.ui.cal_wizard.low_value = state.ui.cal_wizard.high_value.clone();
-                    state.ui.cal_wizard.low_acquired = state.ui.cal_wizard.high_acquired;
-                    state.ui.cal_wizard.high_value.clear();
-                    state.ui.cal_wizard.high_acquired = None;
-                }
-            });
+            ui.label(""); // spacer
+            ui.end_row();
         });
+
+    ui.add_space(16.0);
+
+    let can_proceed = state.ui.cal_wizard.acquired_base.is_some()
+        && !state.ui.cal_wizard.waiting_for_acquire;
+
+    ui.horizontal(|ui| {
+        // Cancel
+        if ui.add_sized([100.0, 32.0], egui::Button::new("Cancel")).clicked() {
+            reset_wizard(state);
+        }
 
         ui.add_space(16.0);
 
-        // ── Device Actions (full width) ────────────────────────────
-        section_header(ui, "Device Actions");
-
-        ui.horizontal_wrapped(|ui| {
-            let actions = [
-                (DeviceAction::Tare, egui::Color32::from_rgb(50, 100, 180)),
-                (DeviceAction::ResetTare, egui::Color32::from_rgb(80, 80, 100)),
-                (DeviceAction::ShuntCalOn, egui::Color32::from_rgb(50, 130, 80)),
-                (DeviceAction::ShuntCalOff, egui::Color32::from_rgb(80, 80, 100)),
-                (DeviceAction::ResetPeakTrough, egui::Color32::from_rgb(180, 130, 50)),
-                (DeviceAction::Reboot, egui::Color32::from_rgb(180, 100, 50)),
-                (DeviceAction::RestoreEepromDefaults, egui::Color32::from_rgb(180, 50, 50)),
-            ];
-            for (action, color) in actions {
-                if ui.add_sized(
-                    [150.0, 32.0],
-                    egui::Button::new(egui::RichText::new(action.label()).size(14.0)).fill(color),
-                ).clicked() {
-                    ble.send(BleCommand::ExecuteAction(action));
-                }
+        // Next
+        ui.add_enabled_ui(can_proceed, |ui| {
+            if ui.add_sized([140.0, 32.0], egui::Button::new(
+                egui::RichText::new("Next \u{2192}").size(15.0)
+            ).fill(egui::Color32::from_rgb(40, 120, 60))).clicked() {
+                let known: f32 = state.ui.cal_wizard.known_value.parse().unwrap_or(0.0);
+                let base = state.ui.cal_wizard.acquired_base.unwrap_or(0.0);
+                state.ui.cal_wizard.prev_known = known;
+                state.ui.cal_wizard.prev_base = base;
+                state.ui.cal_wizard.current_step = 1;
+                state.ui.cal_wizard.known_value.clear();
+                state.ui.cal_wizard.acquired_base = None;
+                state.ui.cal_wizard.pending_gain = None;
+                state.ui.cal_wizard.pending_offset = None;
+                state.ui.cal_wizard.phase = WizardPhase::CapturePoint;
             }
         });
     });
 }
 
-// ── Save calibration registers ─────────────────────────────────────
+// -- Phase: CapturePoint (Steps 1..N) --------------------------------------
 
-fn save_cal_registers(state: &mut AppState, ble: &BleHandle) {
-    if !state.ui.edit.sensitivity_range.is_empty() {
-        if let Ok(v) = state.ui.edit.sensitivity_range.parse::<u8>() {
-            send_tracked(state, ble, BleCommand::WriteCharacteristic {
-                uuid: uuids::char_sens_range(), data: codec::encode_u8(v),
+fn show_wizard_capture_point(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
+    let total: u32 = state.ui.cal_wizard.total_points.parse().unwrap_or(1);
+    let step = state.ui.cal_wizard.current_step;
+
+    section_header(ui, &format!(
+        "Step {} of {}: Calibration Point {}",
+        step + 1,
+        total + 1,
+        step
+    ));
+
+    ui.add_space(4.0);
+
+    // Show previous reference
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Previous reference:").size(14.0)
+            .color(egui::Color32::GRAY));
+        ui.label(egui::RichText::new(format!(
+            "{:.6} eng @ raw {:.6}",
+            state.ui.cal_wizard.prev_known,
+            state.ui.cal_wizard.prev_base
+        )).size(14.0).monospace().color(egui::Color32::GRAY));
+    });
+
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(
+            "Apply the calibration load, enter the known engineering value, and click Acquire."
+        ).size(14.0)
+    );
+    ui.add_space(12.0);
+
+    egui::Grid::new("wizard_point_grid")
+        .num_columns(3)
+        .spacing([12.0, 8.0])
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new("Known value:").size(15.0));
+            ui.add_sized([150.0, 30.0], egui::TextEdit::singleline(&mut state.ui.cal_wizard.known_value)
+                .hint_text("e.g. 100.0"));
+
+            let acquire_enabled = !state.ui.cal_wizard.waiting_for_acquire;
+            ui.add_enabled_ui(acquire_enabled, |ui| {
+                if ui.add_sized([120.0, 30.0], egui::Button::new(
+                    egui::RichText::new("Acquire").size(15.0)
+                ).fill(egui::Color32::from_rgb(50, 100, 180))).clicked() {
+                    state.ui.cal_wizard.waiting_for_acquire = true;
+                    state.ui.cal_wizard.acquired_base = None;
+                    send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_base_value()));
+                }
             });
-        }
-    }
-    if !state.ui.edit.data_gain.is_empty() {
-        if let Ok(v) = state.ui.edit.data_gain.parse::<f32>() {
-            send_tracked(state, ble, BleCommand::WriteCharacteristic {
-                uuid: uuids::char_data_gain(), data: codec::encode_f32_be(v),
-            });
-        }
-    }
-    if !state.ui.edit.data_offset.is_empty() {
-        if let Ok(v) = state.ui.edit.data_offset.parse::<f32>() {
-            send_tracked(state, ble, BleCommand::WriteCharacteristic {
-                uuid: uuids::char_data_offset(), data: codec::encode_f32_be(v),
-            });
-        }
-    }
-    if !state.ui.edit.cal_pin.is_empty() {
-        if let Ok(v) = state.ui.edit.cal_pin.parse::<u32>() {
-            send_tracked(state, ble, BleCommand::WriteCharacteristic {
-                uuid: uuids::char_cal_pin(), data: codec::encode_u32_be(v),
-            });
-        }
-    }
-    if !state.ui.edit.cal_units_display.is_empty() {
-        if let Ok(v) = state.ui.edit.cal_units_display.parse::<u8>() {
-            send_tracked(state, ble, BleCommand::WriteCharacteristic {
-                uuid: uuids::char_cal_units(), data: codec::encode_u8(v),
-            });
+            ui.end_row();
+
+            ui.label(egui::RichText::new("Raw base value:").size(15.0));
+            if state.ui.cal_wizard.waiting_for_acquire {
+                ui.add(egui::Spinner::new().size(16.0));
+            } else if let Some(base) = state.ui.cal_wizard.acquired_base {
+                ui.label(egui::RichText::new(format!("{base:.6}")).size(15.0).monospace()
+                    .color(egui::Color32::from_rgb(80, 200, 80)));
+            } else {
+                ui.label(egui::RichText::new("--").size(15.0).monospace());
+            }
+            ui.label(""); // spacer
+            ui.end_row();
+        });
+
+    // Auto-compute gain/offset when both values are available
+    if let Some(high_base) = state.ui.cal_wizard.acquired_base {
+        if !state.ui.cal_wizard.waiting_for_acquire {
+            let high_target: f32 = state.ui.cal_wizard.known_value.parse().unwrap_or(0.0);
+            let low_base = state.ui.cal_wizard.prev_base;
+            let low_target = state.ui.cal_wizard.prev_known;
+
+            if let Some((gain, offset)) = calibration::two_point_calibration(
+                low_base, high_base, low_target, high_target
+            ) {
+                state.ui.cal_wizard.pending_gain = Some(gain);
+                state.ui.cal_wizard.pending_offset = Some(offset);
+
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(format!("Gain: {gain:.6}"))
+                        .monospace().size(15.0).color(egui::Color32::from_rgb(100, 200, 100)));
+                    ui.add_space(24.0);
+                    ui.label(egui::RichText::new(format!("Offset: {offset:.6}"))
+                        .monospace().size(15.0).color(egui::Color32::from_rgb(100, 200, 100)));
+                });
+            }
         }
     }
 
-    // Re-read all cal registers
-    send_tracked(state, ble, BleCommand::ReadAll(uuids::all_calibration_uuids()));
+    ui.add_space(16.0);
 
-    // Clear edit buffers
-    state.ui.edit.sensitivity_range.clear();
-    state.ui.edit.data_gain.clear();
-    state.ui.edit.data_offset.clear();
-    state.ui.edit.cal_pin.clear();
-    state.ui.edit.cal_units_display.clear();
+    let can_apply = state.ui.cal_wizard.pending_gain.is_some()
+        && state.ui.cal_wizard.acquired_base.is_some()
+        && !state.ui.cal_wizard.waiting_for_acquire;
+
+    ui.horizontal(|ui| {
+        // Cancel
+        if ui.add_sized([100.0, 32.0], egui::Button::new("Cancel")).clicked() {
+            reset_wizard(state);
+        }
+
+        ui.add_space(16.0);
+
+        // Apply & Continue
+        ui.add_enabled_ui(can_apply, |ui| {
+            let btn_text = if step < total {
+                "Apply & Continue \u{2192}"
+            } else {
+                "Apply & Finish \u{2713}"
+            };
+
+            if ui.add_sized([200.0, 36.0], egui::Button::new(
+                egui::RichText::new(btn_text).size(15.0)
+            ).fill(egui::Color32::from_rgb(40, 120, 60))).clicked() {
+                apply_calibration_point(state, ble);
+            }
+        });
+    });
 }
 
-// ── Advanced & Linearisation Sub-tab ───────────────────────────────
+/// Write linearisation coefficients to device and advance the wizard
+fn apply_calibration_point(state: &mut AppState, ble: &BleHandle) {
+    let step = state.ui.cal_wizard.current_step;
+    let total: u32 = state.ui.cal_wizard.total_points.parse().unwrap_or(1);
+    let gain = state.ui.cal_wizard.pending_gain.unwrap_or(1.0);
+    let offset = state.ui.cal_wizard.pending_offset.unwrap_or(0.0);
+    let low_base = state.ui.cal_wizard.prev_base;
+    let high_base = state.ui.cal_wizard.acquired_base.unwrap_or(0.0);
+    let low_target = state.ui.cal_wizard.prev_known;
+    let high_target: f32 = state.ui.cal_wizard.known_value.parse().unwrap_or(0.0);
 
-fn show_advanced_and_lin(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
+    let seg_idx = (step - 1) as u8; // 0-based segment index
+
+    // On the first point, set lin_repeat = 3 (3 columns: valid_from, gain, offset)
+    if step == 1 {
+        send_tracked(state, ble, BleCommand::WriteCharacteristic {
+            uuid: uuids::char_lin_repeat(),
+            data: codec::encode_u8(3),
+        });
+    }
+
+    // Write linearisation coefficients:
+    // Set lin_index = seg_idx * 3, write coeff = valid_from (prev_base)
+    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+        uuid: uuids::char_lin_index(),
+        data: codec::encode_u8(seg_idx * 3),
+    });
+    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+        uuid: uuids::char_coeff_at_idx(),
+        data: codec::encode_f32_be(low_base),
+    });
+
+    // Set lin_index = seg_idx * 3 + 1, write coeff = gain
+    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+        uuid: uuids::char_lin_index(),
+        data: codec::encode_u8(seg_idx * 3 + 1),
+    });
+    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+        uuid: uuids::char_coeff_at_idx(),
+        data: codec::encode_f32_be(gain),
+    });
+
+    // Set lin_index = seg_idx * 3 + 2, write coeff = offset
+    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+        uuid: uuids::char_lin_index(),
+        data: codec::encode_u8(seg_idx * 3 + 2),
+    });
+    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+        uuid: uuids::char_coeff_at_idx(),
+        data: codec::encode_f32_be(offset),
+    });
+
+    // Write valid_to for this segment (= high_base, also the next segment's valid_from)
+    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+        uuid: uuids::char_lin_index(),
+        data: codec::encode_u8(seg_idx * 3 + 3),
+    });
+    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+        uuid: uuids::char_coeff_at_idx(),
+        data: codec::encode_f32_be(high_base),
+    });
+
+    // Set lin_points = step (number of rows so far)
+    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+        uuid: uuids::char_lin_points(),
+        data: codec::encode_u8(step as u8),
+    });
+
+    // Set data_gain = 1.0, data_offset = 0.0 (no unit conversion interference)
+    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+        uuid: uuids::char_data_gain(),
+        data: codec::encode_f32_be(1.0),
+    });
+    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+        uuid: uuids::char_data_offset(),
+        data: codec::encode_f32_be(0.0),
+    });
+
+    // Trigger Calculate Coefficients action (index 38)
+    ble.send(BleCommand::ExecuteAction(DeviceAction::CalculateCoefficients));
+
+    // Add entry to results
+    state.ui.cal_wizard.results.push(crate::state::WizardCalEntry {
+        index: seg_idx + 1,
+        valid_from: low_base,
+        gain,
+        offset,
+        valid_to: high_base,
+        target_from: low_target,
+        target_to: high_target,
+    });
+
+    // Advance or complete
+    if step < total {
+        // Carry forward: current high becomes next low
+        state.ui.cal_wizard.prev_known = high_target;
+        state.ui.cal_wizard.prev_base = high_base;
+        state.ui.cal_wizard.current_step = step + 1;
+        state.ui.cal_wizard.known_value.clear();
+        state.ui.cal_wizard.acquired_base = None;
+        state.ui.cal_wizard.pending_gain = None;
+        state.ui.cal_wizard.pending_offset = None;
+    } else {
+        state.ui.cal_wizard.phase = WizardPhase::Complete;
+    }
+}
+
+// -- Phase: Complete --------------------------------------------------------
+
+fn show_wizard_complete(ui: &mut egui::Ui, state: &mut AppState) {
+    section_header(ui, "Calibration Complete");
+
+    let count = state.ui.cal_wizard.results.len();
+    ui.label(
+        egui::RichText::new(format!(
+            "\u{2713} Calibration complete! {} point(s) captured and written to device.",
+            count
+        ))
+        .size(16.0)
+        .color(egui::Color32::from_rgb(80, 200, 80)),
+    );
+
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(
+            "The linearisation coefficients have been written and Calculate Coefficients triggered.\n\
+             You can verify the results in the Manual Calibration tab."
+        ).size(14.0).color(egui::Color32::GRAY)
+    );
+
+    ui.add_space(16.0);
+
+    if ui.add_sized([200.0, 36.0], egui::Button::new(
+        egui::RichText::new("Start New Calibration").size(15.0)
+    )).clicked() {
+        reset_wizard(state);
+    }
+}
+
+// -- Results table ----------------------------------------------------------
+
+fn show_results_table(ui: &mut egui::Ui, state: &AppState) {
+    egui::Grid::new("wizard_results_table")
+        .num_columns(7)
+        .spacing([16.0, 4.0])
+        .striped(true)
+        .min_col_width(70.0)
+        .show(ui, |ui| {
+            ui.strong("Segment");
+            ui.strong("Valid From");
+            ui.strong("Gain");
+            ui.strong("Offset");
+            ui.strong("Valid To");
+            ui.strong("Eng From");
+            ui.strong("Eng To");
+            ui.end_row();
+
+            for entry in &state.ui.cal_wizard.results {
+                ui.label(format!("{}", entry.index));
+                ui.monospace(format!("{:.6}", entry.valid_from));
+                ui.monospace(format!("{:.6}", entry.gain));
+                ui.monospace(format!("{:.6}", entry.offset));
+                ui.monospace(format!("{:.6}", entry.valid_to));
+                ui.monospace(format!("{:.4}", entry.target_from));
+                ui.monospace(format!("{:.4}", entry.target_to));
+                ui.end_row();
+            }
+        });
+}
+
+// -- Reset wizard -----------------------------------------------------------
+
+fn reset_wizard(state: &mut AppState) {
+    state.ui.cal_wizard.phase = WizardPhase::Setup;
+    state.ui.cal_wizard.total_points = "1".to_string();
+    state.ui.cal_wizard.current_step = 0;
+    state.ui.cal_wizard.known_value.clear();
+    state.ui.cal_wizard.acquired_base = None;
+    state.ui.cal_wizard.waiting_for_acquire = false;
+    state.ui.cal_wizard.prev_known = 0.0;
+    state.ui.cal_wizard.prev_base = 0.0;
+    state.ui.cal_wizard.results.clear();
+    state.ui.cal_wizard.pending_gain = None;
+    state.ui.cal_wizard.pending_offset = None;
+}
+
+// -- Manual Calibration Sub-tab (Advanced & Linearisation) ------------------
+
+fn show_manual_cal(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.add_space(8.0);
 
-        // ── Row: Advanced Params (left) | Linearisation (right)
+        // -- Row: Advanced Params (left) | Linearisation (right)
         ui.columns(2, |cols| {
             // LEFT: Advanced Parameters
             section_header(&mut cols[0], "Advanced Parameters");

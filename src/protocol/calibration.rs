@@ -5,6 +5,12 @@ use super::types::LinearisationEntry;
 /// - `low_base` / `high_base`: raw base values (mV/V) read from the device
 /// - `low_target` / `high_target`: desired engineering values entered by the user
 ///
+/// Formula from B24 Technical Manual:
+///   Gain = (HighTarget - LowTarget) / (HighBase - LowBase)
+///   Offset = Gain * LowBase - LowTarget
+///
+/// Device applies: value = gain * base - offset
+///
 /// Returns (gain, offset) or None if the base values are equal.
 pub fn two_point_calibration(
     low_base: f32,
@@ -17,7 +23,7 @@ pub fn two_point_calibration(
         return None;
     }
     let gain = (high_target - low_target) / base_diff;
-    let offset = low_target - gain * low_base;
+    let offset = gain * low_base - low_target;
     Some((gain, offset))
 }
 

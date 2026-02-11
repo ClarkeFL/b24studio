@@ -4,7 +4,7 @@ use crate::state::AppState;
 use crate::ble::commands::BleCommand;
 use crate::ble::manager::BleHandle;
 use crate::protocol::{uuids, codec};
-use crate::protocol::types::DataUnits;
+use crate::protocol::types::{DataUnits, DeviceAction, SensitivityRange};
 
 /// Fields that are safe to export/import (not device-specific)
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -17,6 +17,10 @@ struct ExportableConfig {
     config_pin: Option<u32>,
     cal_units: Option<u8>,
     data_tag: Option<String>,
+    sensitivity_range: Option<u8>,
+    data_gain: Option<f32>,
+    data_offset: Option<f32>,
+    cal_pin: Option<u32>,
 }
 
 pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
@@ -30,12 +34,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
         if ui.add_sized([120.0, 32.0], egui::Button::new(
             egui::RichText::new("Refresh All").size(15.0)
         )).clicked() {
-            let cmd1 = BleCommand::ReadAll(uuids::all_config_uuids());
-            state.track_send(&cmd1);
-            ble.send(cmd1);
-            let cmd2 = BleCommand::ReadCharacteristic(uuids::char_cal_units());
-            state.track_send(&cmd2);
-            ble.send(cmd2);
+            send_tracked(state, ble, BleCommand::ReadAll(uuids::all_config_uuids()));
+            send_tracked(state, ble, BleCommand::ReadAll(uuids::all_calibration_uuids()));
         }
 
         ui.add_space(8.0);
@@ -237,52 +237,162 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
 
         ui.add_space(16.0);
 
-        // ── Row 3: Units (full width) ─────────────────────────────────
-        section_header(ui, "Units");
+        // ── Row 3: Calibration Registers (two-column) ─────────────────
+        ui.columns(2, |cols| {
+            let edit_w = 150.0;
+            let label_w = 160.0;
 
-        let input_width = 180.0;
+            // LEFT column
+            section_header(&mut cols[0], "Calibration Registers");
 
-        egui::Grid::new("cfg_units")
-            .num_columns(3)
-            .spacing([16.0, 10.0])
-            .min_col_width(80.0)
-            .show(ui, |ui| {
-                field_label(ui, "Calibration Units");
-                let cu_str = state.calibration.cal_units
-                    .map(|u| {
-                        let du = DataUnits::from_byte(u);
-                        format!("{} (0x{:02X})", du.label(), u)
-                    })
-                    .unwrap_or_else(|| "--".into());
-                field_value_or_spinner(ui, &cu_str, uuids::char_cal_units(), state);
+            egui::Grid::new("cfg_cal_left")
+                .num_columns(3)
+                .spacing([12.0, 8.0])
+                .min_col_width(40.0)
+                .show(&mut cols[0], |ui| {
+                    // Sensitivity Range
+                    ui.add_sized([label_w, 26.0], egui::Label::new("Sensitivity Range"));
+                    let sr_str = state.calibration.sensitivity_range
+                        .and_then(SensitivityRange::from_byte)
+                        .map(|s| s.label().to_string())
+                        .unwrap_or_else(|| state.calibration.sensitivity_range
+                            .map(|v| format!("{v}"))
+                            .unwrap_or_else(|| "--".to_string()));
+                    field_value_or_spinner(ui, &sr_str, uuids::char_sens_range(), state);
+                    ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.sensitivity_range)
+                        .hint_text("0-3"));
+                    ui.end_row();
 
-                // Dropdown for selecting calibration units
-                let selected_label = if state.ui.edit.cal_units.is_empty() {
-                    "Select unit...".to_string()
-                } else if let Ok(byte_val) = state.ui.edit.cal_units.parse::<u8>() {
-                    DataUnits::from_byte(byte_val).dropdown_label()
-                } else {
-                    "Select unit...".to_string()
-                };
-                egui::ComboBox::from_id_salt("cfg_cal_units_combo")
-                    .selected_text(&selected_label)
-                    .width(input_width)
-                    .show_ui(ui, |ui| {
-                        // Option to clear selection
-                        if ui.selectable_label(state.ui.edit.cal_units.is_empty(), "-- None --").clicked() {
-                            state.ui.edit.cal_units.clear();
-                        }
-                        for unit in DataUnits::ALL {
-                            let label = unit.dropdown_label();
-                            let byte_str = format!("{}", unit.to_byte());
-                            let is_selected = state.ui.edit.cal_units == byte_str;
-                            if ui.selectable_label(is_selected, &label).clicked() {
-                                state.ui.edit.cal_units = byte_str;
+                    // Data Gain (unit conversion)
+                    ui.add_sized([label_w, 26.0], egui::Label::new("Data Gain"));
+                    let dg = state.calibration.data_gain
+                        .map(|v| format!("{v}"))
+                        .unwrap_or_else(|| "--".to_string());
+                    field_value_or_spinner(ui, &dg, uuids::char_data_gain(), state);
+                    ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.data_gain)
+                        .hint_text("1.0"));
+                    ui.end_row();
+
+                    // Data Offset (unit conversion)
+                    ui.add_sized([label_w, 26.0], egui::Label::new("Data Offset"));
+                    let do_ = state.calibration.data_offset
+                        .map(|v| format!("{v}"))
+                        .unwrap_or_else(|| "--".to_string());
+                    field_value_or_spinner(ui, &do_, uuids::char_data_offset(), state);
+                    ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.data_offset)
+                        .hint_text("0.0"));
+                    ui.end_row();
+
+                    // Cal PIN
+                    ui.add_sized([label_w, 26.0], egui::Label::new("Calibration PIN"));
+                    let cp = state.calibration.cal_pin
+                        .map(|v| format!("{v}"))
+                        .unwrap_or_else(|| "--".to_string());
+                    field_value_or_spinner(ui, &cp, uuids::char_cal_pin(), state);
+                    ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.cal_pin));
+                    ui.end_row();
+                });
+
+            // RIGHT column
+            cols[1].add_space(30.0); // align with left header
+
+            egui::Grid::new("cfg_cal_right")
+                .num_columns(3)
+                .spacing([12.0, 8.0])
+                .min_col_width(40.0)
+                .show(&mut cols[1], |ui| {
+                    // Cal Units (dropdown)
+                    ui.add_sized([label_w, 26.0], egui::Label::new("Calibration Units"));
+                    let cu = state.calibration.cal_units
+                        .map(|u| {
+                            let du = DataUnits::from_byte(u);
+                            format!("{} ({})", du.label(), u)
+                        })
+                        .unwrap_or_else(|| "--".to_string());
+                    field_value_or_spinner(ui, &cu, uuids::char_cal_units(), state);
+
+                    let selected_label = if state.ui.edit.cal_units_display.is_empty() {
+                        "Select unit...".to_string()
+                    } else if let Ok(byte_val) = state.ui.edit.cal_units_display.parse::<u8>() {
+                        DataUnits::from_byte(byte_val).dropdown_label()
+                    } else {
+                        "Select unit...".to_string()
+                    };
+                    egui::ComboBox::from_id_salt("cfg_cal_units_combo")
+                        .selected_text(&selected_label)
+                        .width(edit_w)
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(state.ui.edit.cal_units_display.is_empty(), "-- None --").clicked() {
+                                state.ui.edit.cal_units_display.clear();
                             }
-                        }
-                    });
-                ui.end_row();
-            });
+                            for unit in DataUnits::ALL {
+                                let label = unit.dropdown_label();
+                                let byte_str = format!("{}", unit.to_byte());
+                                let is_selected = state.ui.edit.cal_units_display == byte_str;
+                                if ui.selectable_label(is_selected, &label).clicked() {
+                                    state.ui.edit.cal_units_display = byte_str;
+                                }
+                            }
+                        });
+                    ui.end_row();
+
+                    // Coefficient (read-only)
+                    ui.add_sized([label_w, 26.0], egui::Label::new("Coefficient (@Idx)"));
+                    let cf = state.calibration.coefficient
+                        .map(|v| format!("{v}"))
+                        .unwrap_or_else(|| "--".to_string());
+                    field_value_or_spinner(ui, &cf, uuids::char_coeff_at_idx(), state);
+                    ui.label("");
+                    ui.end_row();
+
+                    // Base Value (read-only)
+                    ui.add_sized([label_w, 26.0], egui::Label::new("Base Value"));
+                    let bv = state.calibration.base_value
+                        .map(|v| format!("{v}"))
+                        .unwrap_or_else(|| "--".to_string());
+                    field_value_or_spinner(ui, &bv, uuids::char_base_value(), state);
+                    ui.label("");
+                    ui.end_row();
+
+                    // Base Units (read-only)
+                    ui.add_sized([label_w, 26.0], egui::Label::new("Base Units"));
+                    let bu = state.calibration.base_units
+                        .map(|u| {
+                            let du = DataUnits::from_byte(u);
+                            format!("{} ({})", du.label(), u)
+                        })
+                        .unwrap_or_else(|| "--".to_string());
+                    field_value_or_spinner(ui, &bu, uuids::char_base_units(), state);
+                    ui.label("");
+                    ui.end_row();
+                });
+        });
+
+        ui.add_space(16.0);
+
+        // ── Row 4: Device Actions (full width) ────────────────────────
+        section_header(ui, "Device Actions");
+
+        ui.horizontal_wrapped(|ui| {
+            let actions = [
+                (DeviceAction::Tare, egui::Color32::from_rgb(50, 100, 180)),
+                (DeviceAction::ResetTare, egui::Color32::from_rgb(80, 80, 100)),
+                (DeviceAction::ShuntCalOn, egui::Color32::from_rgb(50, 130, 80)),
+                (DeviceAction::ShuntCalOff, egui::Color32::from_rgb(80, 80, 100)),
+                (DeviceAction::ResetPeakTrough, egui::Color32::from_rgb(180, 130, 50)),
+                (DeviceAction::CalculateCoefficients, egui::Color32::from_rgb(50, 130, 130)),
+                (DeviceAction::Reboot, egui::Color32::from_rgb(180, 100, 50)),
+                (DeviceAction::RestoreEepromDefaults, egui::Color32::from_rgb(180, 50, 50)),
+            ];
+            for (action, color) in actions {
+                if ui.add_sized(
+                    [170.0, 32.0],
+                    egui::Button::new(egui::RichText::new(action.label()).size(14.0)).fill(color),
+                ).clicked() {
+                    ble.send(BleCommand::ExecuteAction(action));
+                }
+            }
+        });
 
         ui.add_space(24.0);
     });
@@ -296,6 +406,7 @@ fn send_tracked(state: &mut AppState, ble: &BleHandle, cmd: BleCommand) {
 }
 
 fn save_all_changes(state: &mut AppState, ble: &BleHandle) {
+    // Config fields
     if !state.ui.edit.data_rate.is_empty() {
         if let Ok(val) = state.ui.edit.data_rate.parse::<u32>() {
             send_tracked(state, ble, BleCommand::WriteCharacteristic {
@@ -344,17 +455,47 @@ fn save_all_changes(state: &mut AppState, ble: &BleHandle) {
             });
         }
     }
-    if !state.ui.edit.cal_units.is_empty() {
-        if let Ok(val) = state.ui.edit.cal_units.parse::<u8>() {
+
+    // Calibration register fields
+    if !state.ui.edit.sensitivity_range.is_empty() {
+        if let Ok(v) = state.ui.edit.sensitivity_range.parse::<u8>() {
             send_tracked(state, ble, BleCommand::WriteCharacteristic {
-                uuid: uuids::char_cal_units(), data: codec::encode_u8(val),
+                uuid: uuids::char_sens_range(), data: codec::encode_u8(v),
+            });
+        }
+    }
+    if !state.ui.edit.data_gain.is_empty() {
+        if let Ok(v) = state.ui.edit.data_gain.parse::<f32>() {
+            send_tracked(state, ble, BleCommand::WriteCharacteristic {
+                uuid: uuids::char_data_gain(), data: codec::encode_f32_be(v),
+            });
+        }
+    }
+    if !state.ui.edit.data_offset.is_empty() {
+        if let Ok(v) = state.ui.edit.data_offset.parse::<f32>() {
+            send_tracked(state, ble, BleCommand::WriteCharacteristic {
+                uuid: uuids::char_data_offset(), data: codec::encode_f32_be(v),
+            });
+        }
+    }
+    if !state.ui.edit.cal_pin.is_empty() {
+        if let Ok(v) = state.ui.edit.cal_pin.parse::<u32>() {
+            send_tracked(state, ble, BleCommand::WriteCharacteristic {
+                uuid: uuids::char_cal_pin(), data: codec::encode_u32_be(v),
+            });
+        }
+    }
+    if !state.ui.edit.cal_units_display.is_empty() {
+        if let Ok(v) = state.ui.edit.cal_units_display.parse::<u8>() {
+            send_tracked(state, ble, BleCommand::WriteCharacteristic {
+                uuid: uuids::char_cal_units(), data: codec::encode_u8(v),
             });
         }
     }
 
     // Re-read all to reflect changes
     send_tracked(state, ble, BleCommand::ReadAll(uuids::all_config_uuids()));
-    send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_cal_units()));
+    send_tracked(state, ble, BleCommand::ReadAll(uuids::all_calibration_uuids()));
 
     // Clear edit buffers
     state.ui.edit.data_rate.clear();
@@ -365,6 +506,11 @@ fn save_all_changes(state: &mut AppState, ble: &BleHandle) {
     state.ui.edit.battery_threshold.clear();
     state.ui.edit.system_zero.clear();
     state.ui.edit.cal_units.clear();
+    state.ui.edit.sensitivity_range.clear();
+    state.ui.edit.data_gain.clear();
+    state.ui.edit.data_offset.clear();
+    state.ui.edit.cal_pin.clear();
+    state.ui.edit.cal_units_display.clear();
 }
 
 // ── Export ──────────────────────────────────────────────────────────
@@ -379,6 +525,10 @@ fn export_config(state: &AppState) {
         config_pin: state.config.config_pin,
         cal_units: state.calibration.cal_units,
         data_tag: state.config.data_tag.clone(),
+        sensitivity_range: state.calibration.sensitivity_range,
+        data_gain: state.calibration.data_gain,
+        data_offset: state.calibration.data_offset,
+        cal_pin: state.calibration.cal_pin,
     };
 
     if let Ok(json) = serde_json::to_string_pretty(&cfg) {
@@ -447,10 +597,30 @@ fn import_config(state: &mut AppState, ble: &BleHandle) {
                         });
                     }
                 }
+                if let Some(val) = cfg.sensitivity_range {
+                    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+                        uuid: uuids::char_sens_range(), data: codec::encode_u8(val),
+                    });
+                }
+                if let Some(val) = cfg.data_gain {
+                    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+                        uuid: uuids::char_data_gain(), data: codec::encode_f32_be(val),
+                    });
+                }
+                if let Some(val) = cfg.data_offset {
+                    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+                        uuid: uuids::char_data_offset(), data: codec::encode_f32_be(val),
+                    });
+                }
+                if let Some(val) = cfg.cal_pin {
+                    send_tracked(state, ble, BleCommand::WriteCharacteristic {
+                        uuid: uuids::char_cal_pin(), data: codec::encode_u32_be(val),
+                    });
+                }
 
                 // Re-read all
                 send_tracked(state, ble, BleCommand::ReadAll(uuids::all_config_uuids()));
-                send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_cal_units()));
+                send_tracked(state, ble, BleCommand::ReadAll(uuids::all_calibration_uuids()));
             }
         }
     }

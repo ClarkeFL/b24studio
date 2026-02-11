@@ -154,79 +154,342 @@ impl StatusByte {
 /// Units lookup table from B24 Technical Manual Appendix B
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum DataUnits {
+    // Ratio (0)
     #[default]
-    MvPerV,       // 0x00
-    Kg,           // 0x2D
-    Grams,        // 0x30
-    Lbs,          // 0x34
-    Oz,           // 0x32
-    Newtons,      // 0x41
-    KiloNewtons,  // 0x42
-    MilliNewtons, // 0x43
-    Lbf,          // 0x4D
-    Kgf,          // 0x49
-    Bar,          // 0x5F
-    Psi,          // 0x6E
-    Pascal,       // 0x6A
-    NewtonMetre,  // 0x96
-    Metres,       // 0x0F
-    Cm,           // 0x12
-    Mm,           // 0x22
-    Feet,         // 0x17
-    Inches,       // 0x19
-    Counts,       // 0xC8
+    MvPerV,           // 0
+    // Angle (1–7)
+    Radians,          // 1
+    Degrees,          // 2
+    Circumference,    // 3
+    Grade,            // 4
+    ArcMinutes,       // 5
+    ArcSeconds,       // 6
+    Revolutions,      // 7
+    // Length (15–38)
+    Metres,           // 15
+    Angstrom,         // 16
+    AstronomicalUnit, // 17
+    Cm,               // 18
+    ChainsGunters,    // 19
+    Ell,              // 20
+    Em,               // 21
+    Fathoms,          // 22
+    Feet,             // 23
+    Furlongs,         // 24
+    Inches,           // 25
+    Km,               // 26
+    League,           // 27
+    Leagues,          // 28
+    LightYears,       // 29
+    Lines,            // 30
+    Microns,          // 31
+    NauticalMiles,    // 32
+    Miles,            // 33
+    Mm,               // 34
+    Mils,             // 35
+    Nanometers,       // 36
+    Parsec,           // 37
+    Yards,            // 38
+    // Mass (45–59)
+    Kg,               // 45
+    Drams,            // 46
+    Grains,           // 47
+    Grams,            // 48
+    Milligrams,       // 49
+    Oz,               // 50
+    Pennyweights,     // 51
+    Lbs,              // 52
+    Kilopounds,       // 53
+    Scruples,         // 54
+    Slug,             // 55
+    TonsLong,         // 56
+    TonsMetric,       // 57
+    Tonnes,           // 58
+    TonsShort,        // 59
+    // Force (65–81)
+    Newtons,          // 65
+    KiloNewtons,      // 66
+    MilliNewtons,     // 67
+    MegaNewtons,      // 68
+    Crinals,          // 69
+    Dynes,            // 70
+    GramsForce,       // 71
+    JoulesPerCm,      // 72
+    Kgf,              // 73
+    KgfKp,            // 74
+    KgMsSquared,      // 75
+    OuncesForce,      // 76
+    Lbf,              // 77
+    Poundals,         // 78
+    TonsForceLong,    // 79
+    TonsForceShort,   // 80
+    TonsForceMetric,  // 81
+    // Pressure (95–111)
+    Bar,              // 95
+    AtmosphereTech,   // 96
+    AtmospherePhys,   // 97
+    DynePerCmSq,      // 98
+    FtWater,          // 99
+    InWater,          // 100
+    GigaPascal,       // 101
+    HectoPascal,      // 102
+    KgfPerCmSq,       // 103
+    KgfPerMSq,        // 104
+    Microbar,         // 105
+    Pascal,           // 106
+    NewtonPerMSq,     // 107
+    OzPerInSq,        // 108
+    LbPerFtSq,        // 109
+    Psi,              // 110
+    TonnePerCmSq,     // 111
+    // Speed (120–135)
+    MetresPerSec,     // 120
+    CmPerSec,         // 121
+    FeetPerMin,       // 122
+    FeetPerSec,       // 123
+    KmPerHr,          // 124
+    KmPerMin,         // 125
+    KmPerSec,         // 126
+    Knots,            // 127
+    MetresPerHr,      // 128
+    MetresPerMin,     // 129
+    MilesPerHr,       // 130
+    MilesPerMin,      // 131
+    MilesPerSec,      // 132
+    NautMilesPerHr,   // 133
+    NautMilesPerMin,  // 134
+    NautMilesPerSec,  // 135
+    // Torque (150–154)
+    NewtonMetre,      // 150
+    MetreKg,          // 151
+    FootPound,        // 152
+    FootPoundal,      // 153
+    InchPound,        // 154
+    // Arbitrary (200)
+    Counts,           // 200
+    // Undefined (255)
+    Undefined,        // 255
+    // Unknown
     Other(u8),
 }
 
 impl DataUnits {
     pub fn from_byte(b: u8) -> Self {
         match b {
-            0x00 => Self::MvPerV,
-            0x2D => Self::Kg,
-            0x30 => Self::Grams,
-            0x34 => Self::Lbs,
-            0x32 => Self::Oz,
-            0x41 => Self::Newtons,
-            0x42 => Self::KiloNewtons,
-            0x43 => Self::MilliNewtons,
-            0x4D => Self::Lbf,
-            0x49 => Self::Kgf,
-            0x5F => Self::Bar,
-            0x6E => Self::Psi,
-            0x6A => Self::Pascal,
-            0x96 => Self::NewtonMetre,
-            0x0F => Self::Metres,
-            0x12 => Self::Cm,
-            0x22 => Self::Mm,
-            0x17 => Self::Feet,
-            0x19 => Self::Inches,
-            0xC8 => Self::Counts,
+            0 => Self::MvPerV,
+            1 => Self::Radians,
+            2 => Self::Degrees,
+            3 => Self::Circumference,
+            4 => Self::Grade,
+            5 => Self::ArcMinutes,
+            6 => Self::ArcSeconds,
+            7 => Self::Revolutions,
+            15 => Self::Metres,
+            16 => Self::Angstrom,
+            17 => Self::AstronomicalUnit,
+            18 => Self::Cm,
+            19 => Self::ChainsGunters,
+            20 => Self::Ell,
+            21 => Self::Em,
+            22 => Self::Fathoms,
+            23 => Self::Feet,
+            24 => Self::Furlongs,
+            25 => Self::Inches,
+            26 => Self::Km,
+            27 => Self::League,
+            28 => Self::Leagues,
+            29 => Self::LightYears,
+            30 => Self::Lines,
+            31 => Self::Microns,
+            32 => Self::NauticalMiles,
+            33 => Self::Miles,
+            34 => Self::Mm,
+            35 => Self::Mils,
+            36 => Self::Nanometers,
+            37 => Self::Parsec,
+            38 => Self::Yards,
+            45 => Self::Kg,
+            46 => Self::Drams,
+            47 => Self::Grains,
+            48 => Self::Grams,
+            49 => Self::Milligrams,
+            50 => Self::Oz,
+            51 => Self::Pennyweights,
+            52 => Self::Lbs,
+            53 => Self::Kilopounds,
+            54 => Self::Scruples,
+            55 => Self::Slug,
+            56 => Self::TonsLong,
+            57 => Self::TonsMetric,
+            58 => Self::Tonnes,
+            59 => Self::TonsShort,
+            65 => Self::Newtons,
+            66 => Self::KiloNewtons,
+            67 => Self::MilliNewtons,
+            68 => Self::MegaNewtons,
+            69 => Self::Crinals,
+            70 => Self::Dynes,
+            71 => Self::GramsForce,
+            72 => Self::JoulesPerCm,
+            73 => Self::Kgf,
+            74 => Self::KgfKp,
+            75 => Self::KgMsSquared,
+            76 => Self::OuncesForce,
+            77 => Self::Lbf,
+            78 => Self::Poundals,
+            79 => Self::TonsForceLong,
+            80 => Self::TonsForceShort,
+            81 => Self::TonsForceMetric,
+            95 => Self::Bar,
+            96 => Self::AtmosphereTech,
+            97 => Self::AtmospherePhys,
+            98 => Self::DynePerCmSq,
+            99 => Self::FtWater,
+            100 => Self::InWater,
+            101 => Self::GigaPascal,
+            102 => Self::HectoPascal,
+            103 => Self::KgfPerCmSq,
+            104 => Self::KgfPerMSq,
+            105 => Self::Microbar,
+            106 => Self::Pascal,
+            107 => Self::NewtonPerMSq,
+            108 => Self::OzPerInSq,
+            109 => Self::LbPerFtSq,
+            110 => Self::Psi,
+            111 => Self::TonnePerCmSq,
+            120 => Self::MetresPerSec,
+            121 => Self::CmPerSec,
+            122 => Self::FeetPerMin,
+            123 => Self::FeetPerSec,
+            124 => Self::KmPerHr,
+            125 => Self::KmPerMin,
+            126 => Self::KmPerSec,
+            127 => Self::Knots,
+            128 => Self::MetresPerHr,
+            129 => Self::MetresPerMin,
+            130 => Self::MilesPerHr,
+            131 => Self::MilesPerMin,
+            132 => Self::MilesPerSec,
+            133 => Self::NautMilesPerHr,
+            134 => Self::NautMilesPerMin,
+            135 => Self::NautMilesPerSec,
+            150 => Self::NewtonMetre,
+            151 => Self::MetreKg,
+            152 => Self::FootPound,
+            153 => Self::FootPoundal,
+            154 => Self::InchPound,
+            200 => Self::Counts,
+            255 => Self::Undefined,
             other => Self::Other(other),
         }
     }
 
     pub fn to_byte(self) -> u8 {
         match self {
-            Self::MvPerV => 0x00,
-            Self::Kg => 0x2D,
-            Self::Grams => 0x30,
-            Self::Lbs => 0x34,
-            Self::Oz => 0x32,
-            Self::Newtons => 0x41,
-            Self::KiloNewtons => 0x42,
-            Self::MilliNewtons => 0x43,
-            Self::Lbf => 0x4D,
-            Self::Kgf => 0x49,
-            Self::Bar => 0x5F,
-            Self::Psi => 0x6E,
-            Self::Pascal => 0x6A,
-            Self::NewtonMetre => 0x96,
-            Self::Metres => 0x0F,
-            Self::Cm => 0x12,
-            Self::Mm => 0x22,
-            Self::Feet => 0x17,
-            Self::Inches => 0x19,
-            Self::Counts => 0xC8,
+            Self::MvPerV => 0,
+            Self::Radians => 1,
+            Self::Degrees => 2,
+            Self::Circumference => 3,
+            Self::Grade => 4,
+            Self::ArcMinutes => 5,
+            Self::ArcSeconds => 6,
+            Self::Revolutions => 7,
+            Self::Metres => 15,
+            Self::Angstrom => 16,
+            Self::AstronomicalUnit => 17,
+            Self::Cm => 18,
+            Self::ChainsGunters => 19,
+            Self::Ell => 20,
+            Self::Em => 21,
+            Self::Fathoms => 22,
+            Self::Feet => 23,
+            Self::Furlongs => 24,
+            Self::Inches => 25,
+            Self::Km => 26,
+            Self::League => 27,
+            Self::Leagues => 28,
+            Self::LightYears => 29,
+            Self::Lines => 30,
+            Self::Microns => 31,
+            Self::NauticalMiles => 32,
+            Self::Miles => 33,
+            Self::Mm => 34,
+            Self::Mils => 35,
+            Self::Nanometers => 36,
+            Self::Parsec => 37,
+            Self::Yards => 38,
+            Self::Kg => 45,
+            Self::Drams => 46,
+            Self::Grains => 47,
+            Self::Grams => 48,
+            Self::Milligrams => 49,
+            Self::Oz => 50,
+            Self::Pennyweights => 51,
+            Self::Lbs => 52,
+            Self::Kilopounds => 53,
+            Self::Scruples => 54,
+            Self::Slug => 55,
+            Self::TonsLong => 56,
+            Self::TonsMetric => 57,
+            Self::Tonnes => 58,
+            Self::TonsShort => 59,
+            Self::Newtons => 65,
+            Self::KiloNewtons => 66,
+            Self::MilliNewtons => 67,
+            Self::MegaNewtons => 68,
+            Self::Crinals => 69,
+            Self::Dynes => 70,
+            Self::GramsForce => 71,
+            Self::JoulesPerCm => 72,
+            Self::Kgf => 73,
+            Self::KgfKp => 74,
+            Self::KgMsSquared => 75,
+            Self::OuncesForce => 76,
+            Self::Lbf => 77,
+            Self::Poundals => 78,
+            Self::TonsForceLong => 79,
+            Self::TonsForceShort => 80,
+            Self::TonsForceMetric => 81,
+            Self::Bar => 95,
+            Self::AtmosphereTech => 96,
+            Self::AtmospherePhys => 97,
+            Self::DynePerCmSq => 98,
+            Self::FtWater => 99,
+            Self::InWater => 100,
+            Self::GigaPascal => 101,
+            Self::HectoPascal => 102,
+            Self::KgfPerCmSq => 103,
+            Self::KgfPerMSq => 104,
+            Self::Microbar => 105,
+            Self::Pascal => 106,
+            Self::NewtonPerMSq => 107,
+            Self::OzPerInSq => 108,
+            Self::LbPerFtSq => 109,
+            Self::Psi => 110,
+            Self::TonnePerCmSq => 111,
+            Self::MetresPerSec => 120,
+            Self::CmPerSec => 121,
+            Self::FeetPerMin => 122,
+            Self::FeetPerSec => 123,
+            Self::KmPerHr => 124,
+            Self::KmPerMin => 125,
+            Self::KmPerSec => 126,
+            Self::Knots => 127,
+            Self::MetresPerHr => 128,
+            Self::MetresPerMin => 129,
+            Self::MilesPerHr => 130,
+            Self::MilesPerMin => 131,
+            Self::MilesPerSec => 132,
+            Self::NautMilesPerHr => 133,
+            Self::NautMilesPerMin => 134,
+            Self::NautMilesPerSec => 135,
+            Self::NewtonMetre => 150,
+            Self::MetreKg => 151,
+            Self::FootPound => 152,
+            Self::FootPoundal => 153,
+            Self::InchPound => 154,
+            Self::Counts => 200,
+            Self::Undefined => 255,
             Self::Other(b) => b,
         }
     }
@@ -234,71 +497,158 @@ impl DataUnits {
     pub fn label(self) -> &'static str {
         match self {
             Self::MvPerV => "mV/V",
+            Self::Radians => "rad",
+            Self::Degrees => "\u{00B0}",
+            Self::Circumference => "circ",
+            Self::Grade => "grade",
+            Self::ArcMinutes => "'",
+            Self::ArcSeconds => "\"",
+            Self::Revolutions => "rev",
+            Self::Metres => "m",
+            Self::Angstrom => "\u{00C5}",
+            Self::AstronomicalUnit => "AU",
+            Self::Cm => "cm",
+            Self::ChainsGunters => "ch",
+            Self::Ell => "ell",
+            Self::Em => "em",
+            Self::Fathoms => "fm",
+            Self::Feet => "ft",
+            Self::Furlongs => "fur",
+            Self::Inches => "in",
+            Self::Km => "km",
+            Self::League => "lea",
+            Self::Leagues => "league",
+            Self::LightYears => "ly",
+            Self::Lines => "ln",
+            Self::Microns => "\u{00B5}",
+            Self::NauticalMiles => "mi n",
+            Self::Miles => "mi",
+            Self::Mm => "mm",
+            Self::Mils => "mil",
+            Self::Nanometers => "nm",
+            Self::Parsec => "pc",
+            Self::Yards => "yd",
             Self::Kg => "kg",
+            Self::Drams => "dr av",
+            Self::Grains => "gr",
             Self::Grams => "g",
-            Self::Lbs => "lb",
+            Self::Milligrams => "mg",
             Self::Oz => "oz",
+            Self::Pennyweights => "pwt",
+            Self::Lbs => "lb",
+            Self::Kilopounds => "klb",
+            Self::Scruples => "s ap",
+            Self::Slug => "slug",
+            Self::TonsLong => "ton",
+            Self::TonsMetric => "T",
+            Self::Tonnes => "tonne",
+            Self::TonsShort => "sh tn",
             Self::Newtons => "N",
             Self::KiloNewtons => "kN",
             Self::MilliNewtons => "mN",
-            Self::Lbf => "lbf",
+            Self::MegaNewtons => "MN",
+            Self::Crinals => "crinal",
+            Self::Dynes => "dyn",
+            Self::GramsForce => "gf",
+            Self::JoulesPerCm => "J/cm",
             Self::Kgf => "kgf",
+            Self::KgfKp => "kp",
+            Self::KgMsSquared => "kg m/s\u{00B2}",
+            Self::OuncesForce => "ozf",
+            Self::Lbf => "lbf",
+            Self::Poundals => "pdl",
+            Self::TonsForceLong => "tonf l",
+            Self::TonsForceShort => "tonf s",
+            Self::TonsForceMetric => "tonf m",
             Self::Bar => "bar",
-            Self::Psi => "psi",
+            Self::AtmosphereTech => "at",
+            Self::AtmospherePhys => "atm",
+            Self::DynePerCmSq => "dyn/cm\u{00B2}",
+            Self::FtWater => "ftH\u{2082}O",
+            Self::InWater => "inH\u{2082}O",
+            Self::GigaPascal => "GPa",
+            Self::HectoPascal => "hPa",
+            Self::KgfPerCmSq => "kgf/cm\u{00B2}",
+            Self::KgfPerMSq => "kgf/m\u{00B2}",
+            Self::Microbar => "\u{00B5}bar",
             Self::Pascal => "Pa",
+            Self::NewtonPerMSq => "N/m\u{00B2}",
+            Self::OzPerInSq => "oz/in\u{00B2}",
+            Self::LbPerFtSq => "lb/ft\u{00B2}",
+            Self::Psi => "psi",
+            Self::TonnePerCmSq => "T/cm\u{00B2}",
+            Self::MetresPerSec => "m/s",
+            Self::CmPerSec => "cm/s",
+            Self::FeetPerMin => "ft/min",
+            Self::FeetPerSec => "ft/s",
+            Self::KmPerHr => "km/h",
+            Self::KmPerMin => "km/min",
+            Self::KmPerSec => "km/s",
+            Self::Knots => "kn",
+            Self::MetresPerHr => "m/h",
+            Self::MetresPerMin => "m/min",
+            Self::MilesPerHr => "mph",
+            Self::MilesPerMin => "mi/min",
+            Self::MilesPerSec => "mi/s",
+            Self::NautMilesPerHr => "n mi/h",
+            Self::NautMilesPerMin => "n mi/min",
+            Self::NautMilesPerSec => "n mi/s",
             Self::NewtonMetre => "N m",
-            Self::Metres => "m",
-            Self::Cm => "cm",
-            Self::Mm => "mm",
-            Self::Feet => "ft",
-            Self::Inches => "in",
+            Self::MetreKg => "m kg",
+            Self::FootPound => "ft lbf",
+            Self::FootPoundal => "ft pdl",
+            Self::InchPound => "in lbf",
             Self::Counts => "counts",
+            Self::Undefined => "undefined",
             Self::Other(_) => "?",
         }
     }
 
-    pub const COMMON: &'static [DataUnits] = &[
-        Self::MvPerV,
-        Self::Kg,
-        Self::Grams,
-        Self::Lbs,
-        Self::Newtons,
-        Self::KiloNewtons,
-        Self::NewtonMetre,
-        Self::Bar,
-        Self::Psi,
-        Self::Counts,
-    ];
-
-    /// All known units for dropdown selection
+    /// All known units for dropdown selection, grouped by category
     pub const ALL: &'static [DataUnits] = &[
+        // Ratio
         Self::MvPerV,
-        Self::Kg,
-        Self::Grams,
-        Self::Lbs,
-        Self::Oz,
-        Self::Newtons,
-        Self::KiloNewtons,
-        Self::MilliNewtons,
-        Self::Lbf,
-        Self::Kgf,
-        Self::Bar,
-        Self::Psi,
-        Self::Pascal,
-        Self::NewtonMetre,
-        Self::Metres,
-        Self::Cm,
-        Self::Mm,
-        Self::Feet,
-        Self::Inches,
+        // Angle
+        Self::Radians, Self::Degrees, Self::Circumference, Self::Grade,
+        Self::ArcMinutes, Self::ArcSeconds, Self::Revolutions,
+        // Length
+        Self::Metres, Self::Angstrom, Self::AstronomicalUnit, Self::Cm,
+        Self::ChainsGunters, Self::Ell, Self::Em, Self::Fathoms, Self::Feet,
+        Self::Furlongs, Self::Inches, Self::Km, Self::League, Self::Leagues,
+        Self::LightYears, Self::Lines, Self::Microns, Self::NauticalMiles,
+        Self::Miles, Self::Mm, Self::Mils, Self::Nanometers, Self::Parsec, Self::Yards,
+        // Mass
+        Self::Kg, Self::Drams, Self::Grains, Self::Grams, Self::Milligrams,
+        Self::Oz, Self::Pennyweights, Self::Lbs, Self::Kilopounds, Self::Scruples,
+        Self::Slug, Self::TonsLong, Self::TonsMetric, Self::Tonnes, Self::TonsShort,
+        // Force
+        Self::Newtons, Self::KiloNewtons, Self::MilliNewtons, Self::MegaNewtons,
+        Self::Crinals, Self::Dynes, Self::GramsForce, Self::JoulesPerCm, Self::Kgf,
+        Self::KgfKp, Self::KgMsSquared, Self::OuncesForce, Self::Lbf, Self::Poundals,
+        Self::TonsForceLong, Self::TonsForceShort, Self::TonsForceMetric,
+        // Pressure
+        Self::Bar, Self::AtmosphereTech, Self::AtmospherePhys, Self::DynePerCmSq,
+        Self::FtWater, Self::InWater, Self::GigaPascal, Self::HectoPascal,
+        Self::KgfPerCmSq, Self::KgfPerMSq, Self::Microbar, Self::Pascal,
+        Self::NewtonPerMSq, Self::OzPerInSq, Self::LbPerFtSq, Self::Psi, Self::TonnePerCmSq,
+        // Speed
+        Self::MetresPerSec, Self::CmPerSec, Self::FeetPerMin, Self::FeetPerSec,
+        Self::KmPerHr, Self::KmPerMin, Self::KmPerSec, Self::Knots,
+        Self::MetresPerHr, Self::MetresPerMin, Self::MilesPerHr, Self::MilesPerMin,
+        Self::MilesPerSec, Self::NautMilesPerHr, Self::NautMilesPerMin, Self::NautMilesPerSec,
+        // Torque
+        Self::NewtonMetre, Self::MetreKg, Self::FootPound, Self::FootPoundal, Self::InchPound,
+        // Arbitrary
         Self::Counts,
+        // Undefined
+        Self::Undefined,
     ];
 
-    /// Display label including the byte value for clarity
+    /// Display label with decimal byte value for dropdown
     pub fn dropdown_label(self) -> String {
         match self {
-            Self::Other(b) => format!("Unknown (0x{b:02X})"),
-            _ => format!("{} (0x{:02X})", self.label(), self.to_byte()),
+            Self::Other(b) => format!("Unknown ({b})"),
+            _ => format!("{} ({})", self.label(), self.to_byte()),
         }
     }
 }
@@ -384,6 +734,7 @@ impl AdvancedParam {
 /// Device actions triggered via advanced index/data writes — from Appendix C
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceAction {
+    CalculateCoefficients, // Index 38 — recalculate live coefficients after calibration
     Reboot,              // Index 189
     ShuntCalOn,          // Index 192
     ShuntCalOff,         // Index 193
@@ -396,6 +747,7 @@ pub enum DeviceAction {
 impl DeviceAction {
     pub fn label(self) -> &'static str {
         match self {
+            Self::CalculateCoefficients => "Calculate Coefficients",
             Self::Reboot => "Reboot Device",
             Self::ShuntCalOn => "Shunt Calibration On",
             Self::ShuntCalOff => "Shunt Calibration Off",
@@ -407,9 +759,10 @@ impl DeviceAction {
     }
 
     /// Returns (advanced_index, data_to_write)
-    /// Actions are write-only; data value doesn't matter but we send 1
+    /// Actions are write-only; data value doesn't matter but we send 0
     pub fn command(self) -> (u8, Vec<u8>) {
         match self {
+            Self::CalculateCoefficients => (38, vec![0]),
             Self::Reboot => (189, vec![0]),
             Self::ShuntCalOn => (192, vec![0]),
             Self::ShuntCalOff => (193, vec![0]),

@@ -208,6 +208,7 @@ pub struct UiState {
     pub cal_sub_tab: CalSubTab,
     pub edit: EditBuffers,
     pub cal_wizard: CalWizardState,
+    pub view_mode: ViewModeState,
     pub pending_reads: HashSet<Uuid>,
     pub pending_writes: HashSet<Uuid>,
     pub pending_adv_reads: HashSet<u8>,
@@ -221,6 +222,7 @@ impl Default for UiState {
             cal_sub_tab: CalSubTab::AutoCal,
             edit: EditBuffers::default(),
             cal_wizard: CalWizardState::default(),
+            view_mode: ViewModeState::default(),
             pending_reads: HashSet::new(),
             pending_writes: HashSet::new(),
             pending_adv_reads: HashSet::new(),
@@ -243,7 +245,7 @@ pub enum Tab {
 pub enum CalSubTab {
     #[default]
     AutoCal,
-    Multipoint,
+    ManualCal,
 }
 
 /// Edit buffers for text input fields
@@ -272,11 +274,96 @@ pub struct EditBuffers {
     pub adv_data: String,
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+pub enum WizardPhase {
+    #[default]
+    Setup,        // User specifies number of cal points
+    CaptureZero,  // Capture the zero/reference point
+    CapturePoint, // Capture each calibration point (1..N)
+    Complete,     // All done
+}
+
+pub struct WizardCalEntry {
+    pub index: u8,
+    pub valid_from: f32,
+    pub gain: f32,
+    pub offset: f32,
+    pub valid_to: f32,
+    pub target_from: f32,
+    pub target_to: f32,
+}
+
 pub struct CalWizardState {
-    pub low_value: String,
-    pub high_value: String,
-    pub low_acquired: Option<f32>,
-    pub high_acquired: Option<f32>,
-    pub current_point: u32,
+    pub phase: WizardPhase,
+    pub total_points: String,
+    pub current_step: u32,
+    pub known_value: String,
+    pub acquired_base: Option<f32>,
+    pub waiting_for_acquire: bool,
+    pub prev_known: f32,
+    pub prev_base: f32,
+    pub results: Vec<WizardCalEntry>,
+    pub pending_gain: Option<f32>,
+    pub pending_offset: Option<f32>,
+}
+
+impl Default for CalWizardState {
+    fn default() -> Self {
+        Self {
+            phase: WizardPhase::Setup,
+            total_points: "1".to_string(),
+            current_step: 0,
+            known_value: String::new(),
+            acquired_base: None,
+            waiting_for_acquire: false,
+            prev_known: 0.0,
+            prev_base: 0.0,
+            results: Vec::new(),
+            pending_gain: None,
+            pending_offset: None,
+        }
+    }
+}
+
+// ── View Mode ─────────────────────────────────────────────────────
+
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+pub enum ViewSource {
+    #[default]
+    Advertising,  // From scan advertising packets (no connection needed)
+    Connected,    // From BLE notifications (live data)
+}
+
+pub struct ViewModeState {
+    pub active: bool,
+    pub source: ViewSource,
+    pub peripheral_id: Option<String>,  // device being viewed (advertising mode)
+    pub device_name: String,            // cached device name for display
+    pub view_pin: String,               // entered View PIN
+    pub show_pin_dialog: bool,          // show PIN entry dialog
+    pub current_value: Option<f32>,
+    pub current_units: Option<u8>,
+    pub current_status: Option<StatusByte>,
+    pub data_tag: Option<u16>,
+    pub history: VecDeque<(f64, f32)>,
+    pub start_time: Option<std::time::Instant>,
+}
+
+impl Default for ViewModeState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            source: ViewSource::Advertising,
+            peripheral_id: None,
+            device_name: String::new(),
+            view_pin: String::new(),
+            show_pin_dialog: false,
+            current_value: None,
+            current_units: None,
+            current_status: None,
+            data_tag: None,
+            history: VecDeque::new(),
+            start_time: None,
+        }
+    }
 }
