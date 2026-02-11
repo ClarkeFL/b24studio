@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use btleplug::api::{
     Central, CentralEvent, Manager as _, Peripheral as _, ScanFilter, WriteType,
@@ -11,6 +13,7 @@ use log::{info, warn, error, debug};
 use crate::ble::commands::BleCommand;
 use crate::ble::events::BleEvent;
 use crate::ble::error::BleError;
+use crate::ble::bluegiga;
 use crate::protocol::uuids;
 use crate::protocol::codec;
 
@@ -20,6 +23,8 @@ pub struct BleWorker {
     adapter: Option<Adapter>,
     peripheral: Option<Peripheral>,
     characteristics: Vec<Characteristic>,
+    bluegiga_stop: Option<Arc<AtomicBool>>,
+    bluegiga_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl BleWorker {
@@ -33,6 +38,8 @@ impl BleWorker {
             adapter: None,
             peripheral: None,
             characteristics: Vec::new(),
+            bluegiga_stop: None,
+            bluegiga_thread: None,
         }
     }
 
@@ -101,12 +108,35 @@ impl BleWorker {
     }
 
     async fn start_scan(&mut self) {
+        // Stop any previous BlueGiga scanner before starting a new one
+        self.stop_bluegiga();
+
+        // Try BlueGiga BLED112 dongle first (raw advertising at full speed)
+        if let Some(port) = bluegiga::detect() {
+            info!("Found BLED112 on {port}, using for scanning");
+            let stop = Arc::new(AtomicBool::new(false));
+            self.bluegiga_stop = Some(stop.clone());
+            let evt_tx = self.evt_tx.clone();
+            let handle = std::thread::Builder::new()
+                .name("bluegiga-scanner".into())
+                .spawn(move || bluegiga::run(port, evt_tx, stop))
+                .ok();
+            self.bluegiga_thread = handle;
+
+            // Also start btleplug scanning silently in the background.
+            // This keeps btleplug's peripheral cache populated so Connect works.
+            if let Some(adapter) = &self.adapter {
+                let _ = adapter.start_scan(ScanFilter::default()).await;
+            }
+            return;
+        }
+
+        // Fallback: btleplug WinRT scanning
         let Some(adapter) = &self.adapter else {
             let _ = self.evt_tx.send(BleEvent::Error(BleError::NoAdapter));
             return;
         };
 
-        // Start scanning
         if let Err(e) = adapter.start_scan(ScanFilter::default()).await {
             let _ = self.evt_tx.send(BleEvent::Error(BleError::Other(
                 format!("Scan start failed: {e}"),
@@ -114,7 +144,7 @@ impl BleWorker {
             return;
         }
 
-        info!("BLE scan started");
+        info!("BLE scan started (btleplug/WinRT)");
 
         // Spawn a task to listen for discovery events
         let evt_tx = self.evt_tx.clone();
@@ -150,6 +180,12 @@ impl BleWorker {
                             });
                         }
                     }
+                    CentralEvent::ManufacturerDataAdvertisement { id, manufacturer_data } => {
+                        let _ = evt_tx.send(BleEvent::ManufacturerDataUpdate {
+                            peripheral_id: id.to_string(),
+                            manufacturer_data,
+                        });
+                    }
                     _ => {}
                 }
             }
@@ -157,36 +193,74 @@ impl BleWorker {
     }
 
     async fn stop_scan(&mut self) {
+        // Stop BlueGiga scanner and wait for thread to finish
+        self.stop_bluegiga();
+        // Stop btleplug scanning
         if let Some(adapter) = &self.adapter {
             let _ = adapter.stop_scan().await;
-            let _ = self.evt_tx.send(BleEvent::ScanStopped);
-            info!("BLE scan stopped");
+        }
+        let _ = self.evt_tx.send(BleEvent::ScanStopped);
+        info!("BLE scan stopped");
+    }
+
+    /// Signal the BlueGiga scanner thread to stop and wait for it to release the COM port.
+    fn stop_bluegiga(&mut self) {
+        if let Some(stop) = self.bluegiga_stop.take() {
+            stop.store(true, Ordering::Relaxed);
+            info!("BlueGiga scanner stop signal sent");
+        }
+        if let Some(handle) = self.bluegiga_thread.take() {
+            info!("Waiting for BlueGiga scanner thread to finish...");
+            let _ = handle.join();
+            info!("BlueGiga scanner thread finished, COM port released");
         }
     }
 
+    /// Look up a peripheral by ID in the btleplug cache.
+    /// If not found, do a short re-scan and retry up to 3 times.
+    /// This handles the case where BLED112 was doing the scanning and
+    /// btleplug's cache hasn't populated the device yet.
+    async fn find_peripheral_with_retry(
+        &self,
+        adapter: &Adapter,
+        peripheral_id: &str,
+    ) -> Option<Peripheral> {
+        for attempt in 0..3 {
+            let peripherals = adapter.peripherals().await.ok()?;
+            if let Some(p) = peripherals.into_iter().find(|p| p.id().to_string() == peripheral_id) {
+                if attempt > 0 {
+                    info!("Found peripheral on retry attempt {}", attempt + 1);
+                    let _ = adapter.stop_scan().await;
+                }
+                return Some(p);
+            }
+
+            if attempt == 0 {
+                info!("Peripheral not in cache, starting brief re-scan...");
+            }
+            // Start a scan and wait briefly for the device to appear
+            let _ = adapter.start_scan(ScanFilter::default()).await;
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+        // Final stop after retries
+        let _ = adapter.stop_scan().await;
+        None
+    }
+
     async fn connect(&mut self, peripheral_id: &str, config_pin: u32) {
+        // Stop BlueGiga scanner to release COM port before connecting
+        self.stop_bluegiga();
+
         let Some(adapter) = &self.adapter else {
             let _ = self.evt_tx.send(BleEvent::Error(BleError::NoAdapter));
             return;
         };
 
-        // Stop scanning first
+        // Stop btleplug scanning
         let _ = adapter.stop_scan().await;
 
-        // Find the peripheral
-        let peripherals = match adapter.peripherals().await {
-            Ok(p) => p,
-            Err(e) => {
-                let _ = self.evt_tx.send(BleEvent::Error(BleError::ConnectionFailed(
-                    format!("Failed to list peripherals: {e}"),
-                )));
-                return;
-            }
-        };
-
-        let peripheral = peripherals
-            .into_iter()
-            .find(|p| p.id().to_string() == peripheral_id);
+        // Find the peripheral, with retry if not in cache
+        let peripheral = self.find_peripheral_with_retry(adapter, peripheral_id).await;
 
         let Some(peripheral) = peripheral else {
             let _ = self.evt_tx.send(BleEvent::Error(BleError::DeviceNotFound(

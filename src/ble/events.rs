@@ -47,6 +47,11 @@ pub enum BleEvent {
     },
     /// A device action was executed
     ActionExecuted(DeviceAction),
+    /// Manufacturer data received from an advertising packet (fires for every advert)
+    ManufacturerDataUpdate {
+        peripheral_id: String,
+        manufacturer_data: HashMap<u16, Vec<u8>>,
+    },
     /// An error occurred
     Error(BleError),
 }

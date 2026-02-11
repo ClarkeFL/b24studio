@@ -1,35 +1,45 @@
 use eframe::egui;
 use crate::state::AppState;
 use crate::ble::manager::BleHandle;
+use crate::ui::widgets;
 
 pub fn show(ui: &mut egui::Ui, state: &mut AppState, _ble: &BleHandle) {
-    ui.heading("Data Log");
-    ui.separator();
+    ui.add_space(8.0);
 
+    // Header with Start/Stop + Clear + Export (matching Configuration tab style)
     ui.horizontal(|ui| {
-        let label = if state.log.is_logging {
-            "Stop Logging"
-        } else {
-            "Start Logging"
-        };
-        if ui.button(label).clicked() {
+        widgets::page_header(ui, "Data Log");
+        ui.add_space(24.0);
+
+        let label = if state.log.is_logging { "Stop Logging" } else { "Start Logging" };
+        if ui.add_sized([130.0, widgets::BTN_HEIGHT_HEADER], egui::Button::new(
+            egui::RichText::new(label).size(15.0)
+        )).clicked() {
             state.log.is_logging = !state.log.is_logging;
         }
 
-        ui.separator();
+        ui.add_space(8.0);
         ui.label(format!("Entries: {}", state.log.entries.len()));
 
-        if ui.button("Clear Log").clicked() {
-            state.log.entries.clear();
-        }
-
-        if ui.button("Export CSV").clicked() {
-            export_csv(state);
-        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.add_sized([100.0, widgets::BTN_HEIGHT_HEADER], egui::Button::new(
+                egui::RichText::new("Export CSV").size(15.0)
+            )).clicked() {
+                export_csv(state);
+            }
+            ui.add_space(4.0);
+            if ui.add_sized([100.0, widgets::BTN_HEIGHT_HEADER], egui::Button::new(
+                egui::RichText::new("Clear Log").size(15.0)
+            )).clicked() {
+                state.log.entries.clear();
+            }
+        });
     });
 
+    ui.separator();
+
     if state.log.is_logging {
-        ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "Recording...");
+        ui.colored_label(widgets::COLOR_ERROR, "Recording...");
     }
 
     ui.add_space(8.0);

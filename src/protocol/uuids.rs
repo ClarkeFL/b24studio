@@ -78,6 +78,7 @@ pub fn all_calibration_uuids() -> Vec<Uuid> {
         char_base_units(),
         char_data_gain(),
         char_data_offset(),
+        char_cal_pin(),
         char_cal_units(),
     ]
 }

@@ -5,8 +5,8 @@ use log::{info, debug, warn};
 use crate::state::*;
 use crate::ble::events::BleEvent;
 use crate::ble::manager::BleHandle;
-use crate::protocol::{uuids, codec};
-use crate::protocol::types::{StatusByte, DataUnits};
+use crate::protocol::{uuids, codec, calibration};
+use crate::protocol::types::{StatusByte, DataUnits, LinearisationEntry};
 use crate::ui;
 
 pub struct B24App {
@@ -76,16 +76,39 @@ impl B24App {
                             manufacturer_data,
                             service_uuids,
                             is_b24,
+                            decoded_tag: None,
+                            decoded_value: None,
+                            decoded_units: None,
+                            decoded_status: None,
+                            decoded_pin_valid: false,
                         });
                     }
 
-                    // If view mode is active (advertising), decode the advertising data
+                    // Auto-decode advertising data for device cards (using default View PIN)
+                    if let Some(dev) = self.state.connection.scanned_devices
+                        .iter_mut()
+                        .find(|d| d.peripheral_id == peripheral_id)
+                    {
+                        if let Some(raw) = dev.manufacturer_data.get(&0x04C3).cloned() {
+                            // Decode with empty PIN (default is null bytes)
+                            if let Some(decoded) = codec::decode_advertising(&raw, "") {
+                                dev.decoded_tag = Some(decoded.data_tag);
+                                dev.decoded_pin_valid = decoded.pin_valid;
+                                if decoded.pin_valid {
+                                    dev.decoded_value = Some(decoded.value);
+                                    dev.decoded_units = Some(decoded.units);
+                                    dev.decoded_status = Some(decoded.status);
+                                }
+                            }
+                        }
+                    }
+
+                    // If view mode is active (advertising), decode with user's View PIN
                     if self.state.ui.view_mode.active
                         && self.state.ui.view_mode.source == ViewSource::Advertising
                     {
                         if let Some(ref view_pid) = self.state.ui.view_mode.peripheral_id {
                             if *view_pid == peripheral_id {
-                                // Find this device's manufacturer data
                                 if let Some(dev) = self.state.connection.scanned_devices
                                     .iter()
                                     .find(|d| d.peripheral_id == peripheral_id)
@@ -95,19 +118,85 @@ impl B24App {
                                             raw,
                                             &self.state.ui.view_mode.view_pin,
                                         ) {
-                                            self.state.ui.view_mode.current_value = Some(decoded.value);
-                                            self.state.ui.view_mode.current_units = Some(decoded.units);
-                                            self.state.ui.view_mode.current_status =
-                                                Some(StatusByte::from_byte(decoded.status));
+                                            if decoded.pin_valid {
+                                                self.state.ui.view_mode.current_value = Some(decoded.value);
+                                                self.state.ui.view_mode.current_units = Some(decoded.units);
+                                                self.state.ui.view_mode.current_status =
+                                                    Some(StatusByte::from_byte(decoded.status));
+                                            }
                                             self.state.ui.view_mode.data_tag = Some(decoded.data_tag);
+                                            self.state.ui.view_mode.last_update = Some(std::time::Instant::now());
 
-                                            // Push to history
-                                            let start = self.state.ui.view_mode.start_time
-                                                .get_or_insert_with(std::time::Instant::now);
-                                            let elapsed = start.elapsed().as_secs_f64();
-                                            self.state.ui.view_mode.history.push_back((elapsed, decoded.value));
-                                            if self.state.ui.view_mode.history.len() > 2000 {
-                                                self.state.ui.view_mode.history.pop_front();
+                                            // Push to history only if PIN is valid
+                                            if decoded.pin_valid {
+                                                let start = self.state.ui.view_mode.start_time
+                                                    .get_or_insert_with(std::time::Instant::now);
+                                                let elapsed = start.elapsed().as_secs_f64();
+                                                self.state.ui.view_mode.history.push_back((elapsed, decoded.value));
+                                                if self.state.ui.view_mode.history.len() > 2000 {
+                                                    self.state.ui.view_mode.history.pop_front();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                BleEvent::ManufacturerDataUpdate { peripheral_id, manufacturer_data } => {
+                    // Fast path: update manufacturer data on existing device
+                    if let Some(dev) = self.state.connection.scanned_devices
+                        .iter_mut()
+                        .find(|d| d.peripheral_id == peripheral_id)
+                    {
+                        dev.manufacturer_data = manufacturer_data;
+                        // Re-decode for device card
+                        if let Some(raw) = dev.manufacturer_data.get(&0x04C3).cloned() {
+                            if let Some(decoded) = codec::decode_advertising(&raw, "") {
+                                dev.decoded_tag = Some(decoded.data_tag);
+                                dev.decoded_pin_valid = decoded.pin_valid;
+                                if decoded.pin_valid {
+                                    dev.decoded_value = Some(decoded.value);
+                                    dev.decoded_units = Some(decoded.units);
+                                    dev.decoded_status = Some(decoded.status);
+                                }
+                            }
+                        }
+                    }
+
+                    // Fast path for view mode: decode directly from manufacturer data
+                    if self.state.ui.view_mode.active
+                        && self.state.ui.view_mode.source == ViewSource::Advertising
+                    {
+                        if let Some(ref view_pid) = self.state.ui.view_mode.peripheral_id {
+                            if *view_pid == peripheral_id {
+                                if let Some(dev) = self.state.connection.scanned_devices
+                                    .iter()
+                                    .find(|d| d.peripheral_id == peripheral_id)
+                                {
+                                    if let Some(raw) = dev.manufacturer_data.get(&0x04C3) {
+                                        if let Some(decoded) = codec::decode_advertising(
+                                            raw,
+                                            &self.state.ui.view_mode.view_pin,
+                                        ) {
+                                            if decoded.pin_valid {
+                                                self.state.ui.view_mode.current_value = Some(decoded.value);
+                                                self.state.ui.view_mode.current_units = Some(decoded.units);
+                                                self.state.ui.view_mode.current_status =
+                                                    Some(StatusByte::from_byte(decoded.status));
+                                            }
+                                            self.state.ui.view_mode.data_tag = Some(decoded.data_tag);
+                                            self.state.ui.view_mode.last_update = Some(std::time::Instant::now());
+
+                                            if decoded.pin_valid {
+                                                let start = self.state.ui.view_mode.start_time
+                                                    .get_or_insert_with(std::time::Instant::now);
+                                                let elapsed = start.elapsed().as_secs_f64();
+                                                self.state.ui.view_mode.history.push_back((elapsed, decoded.value));
+                                                if self.state.ui.view_mode.history.len() > 2000 {
+                                                    self.state.ui.view_mode.history.pop_front();
+                                                }
                                             }
                                         }
                                     }
@@ -242,18 +331,88 @@ impl B24App {
             self.state.calibration.sensitivity_range = codec::decode_u8(data).ok();
         } else if uuid == uuids::char_coeff_at_idx() {
             self.state.calibration.coefficient = codec::decode_f32_be(data).ok();
+            // Process linearisation table read queue
+            if !self.state.calibration.lin_read_queue.is_empty() {
+                if let Some(val) = self.state.calibration.coefficient {
+                    self.state.calibration.lin_read_buf.push(val);
+                    self.state.calibration.lin_read_queue.remove(0);
+                    if let Some((next_idx, _)) = self.state.calibration.lin_read_queue.first() {
+                        // Read next coefficient
+                        let next_idx = *next_idx;
+                        self.ble.send(crate::ble::commands::BleCommand::WriteCharacteristic {
+                            uuid: uuids::char_lin_index(),
+                            data: codec::encode_u8(next_idx),
+                        });
+                        self.ble.send(crate::ble::commands::BleCommand::ReadCharacteristic(
+                            uuids::char_coeff_at_idx(),
+                        ));
+                    } else {
+                        // All done — build the table
+                        let buf = &self.state.calibration.lin_read_buf;
+                        let np = self.state.calibration.lin_read_num_points as usize;
+                        let mut table = Vec::new();
+                        // Each segment: 3 values (valid_from, gain, offset) + final valid_to
+                        for i in 0..np {
+                            let base = i * 3;
+                            if base + 2 < buf.len() {
+                                let valid_to = if base + 3 < buf.len() {
+                                    buf[base + 3]
+                                } else {
+                                    0.0
+                                };
+                                table.push(LinearisationEntry {
+                                    index: (i + 1) as u8,
+                                    valid_from: buf[base],
+                                    gain: buf[base + 1],
+                                    offset: buf[base + 2],
+                                    valid_to,
+                                });
+                            }
+                        }
+                        self.state.calibration.linearisation_table = table;
+                        self.state.calibration.lin_read_buf.clear();
+                    }
+                }
+            }
         } else if uuid == uuids::char_lin_index() {
             self.state.calibration.lin_index = codec::decode_u8(data).ok();
         } else if uuid == uuids::char_lin_repeat() {
             self.state.calibration.lin_repeat = codec::decode_u8(data).ok();
         } else if uuid == uuids::char_lin_points() {
             self.state.calibration.lin_points = codec::decode_u8(data).ok();
+            // Auto-trigger linearisation table read
+            if let Some(num_points) = self.state.calibration.lin_points {
+                if num_points > 0 && num_points <= 15 {
+                    let seq = calibration::linearisation_read_sequence(num_points);
+                    self.state.calibration.lin_read_queue = seq.iter()
+                        .map(|(idx, name)| (*idx, name.to_string()))
+                        .collect();
+                    self.state.calibration.lin_read_buf.clear();
+                    self.state.calibration.lin_read_num_points = num_points;
+                    // Start reading the first coefficient
+                    if let Some((idx, _)) = self.state.calibration.lin_read_queue.first() {
+                        let idx = *idx;
+                        self.ble.send(crate::ble::commands::BleCommand::WriteCharacteristic {
+                            uuid: uuids::char_lin_index(),
+                            data: codec::encode_u8(idx),
+                        });
+                        self.ble.send(crate::ble::commands::BleCommand::ReadCharacteristic(
+                            uuids::char_coeff_at_idx(),
+                        ));
+                    }
+                }
+            }
         } else if uuid == uuids::char_base_value() {
             self.state.calibration.base_value = codec::decode_f32_be(data).ok();
-            // If the wizard is waiting for an acquisition, feed the value to it
-            if self.state.ui.cal_wizard.waiting_for_acquire {
-                self.state.ui.cal_wizard.acquired_base = self.state.calibration.base_value;
-                self.state.ui.cal_wizard.waiting_for_acquire = false;
+            // If auto_cal is waiting for a capture, feed the value to the correct point
+            if let Some(idx) = self.state.ui.auto_cal.capturing_index {
+                if let Some(base) = self.state.calibration.base_value {
+                    if let Some(point) = self.state.ui.auto_cal.points.get_mut(idx) {
+                        point.base_value = Some(base);
+                        point.capture_status = CaptureStatus::Captured;
+                    }
+                }
+                self.state.ui.auto_cal.capturing_index = None;
             }
         } else if uuid == uuids::char_base_units() {
             self.state.calibration.base_units = codec::decode_u8(data).ok();
@@ -344,7 +503,7 @@ impl eframe::App for B24App {
             || self.state.has_pending()
             || self.state.ui.view_mode.active
         {
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
 
         // Top panel: tab bar + disconnect button
@@ -363,6 +522,7 @@ impl eframe::App for B24App {
                 );
                 ui.selectable_value(&mut self.state.ui.active_tab, Tab::Live, "Live Data");
                 ui.selectable_value(&mut self.state.ui.active_tab, Tab::Log, "Log");
+                ui.selectable_value(&mut self.state.ui.active_tab, Tab::MobileExport, "Mobile Export");
 
                 // Right-aligned disconnect button (visible when connected/connecting, but NOT on Connect tab)
                 let phase = self.state.connection.phase;
@@ -372,7 +532,7 @@ impl eframe::App for B24App {
                         if ui.add(
                             egui::Button::new(
                                 egui::RichText::new("Disconnect").color(egui::Color32::WHITE)
-                            ).fill(egui::Color32::from_rgb(180, 50, 50))
+                            ).fill(ui::widgets::COLOR_BTN_RED)
                         ).clicked() {
                             self.ble.send(crate::ble::commands::BleCommand::Disconnect);
                             self.state.connection.phase = ConnectionPhase::Disconnected;
@@ -404,6 +564,7 @@ impl eframe::App for B24App {
                 }
                 Tab::Live => ui::live_tab::show(ui, &mut self.state, &self.ble),
                 Tab::Log => ui::log_tab::show(ui, &mut self.state, &self.ble),
+                Tab::MobileExport => ui::mobile_export_tab::show(ui, &mut self.state, &self.ble),
             }
         });
     }

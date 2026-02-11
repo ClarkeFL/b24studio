@@ -12,6 +12,7 @@ egui_plot = "0.30"
 
 # BLE
 btleplug = "0.11"
+serialport = "4"
 
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
@@ -37,6 +38,9 @@ anyhow = "1"
 
 # File dialogs
 rfd = "0.15"
+
+# QR code generation
+qrcode = { version = "0.14", default-features = false }
 
 # Futures for BLE stream
 futures = "0.3"

@@ -4,7 +4,7 @@ use crate::state::{AppState, ConnectionPhase, ViewSource};
 use crate::ble::commands::BleCommand;
 use crate::ble::manager::BleHandle;
 use crate::protocol::types::DataUnits;
-use crate::ui::widgets::status_indicator;
+use crate::ui::widgets::{self, status_indicator};
 
 pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
     // If view mode is active, show the view screen instead of normal connect UI
@@ -21,7 +21,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
 
     // Header row with scan/disconnect controls
     ui.horizontal(|ui| {
-        ui.heading("B24 Devices");
+        widgets::page_header(ui, "B24 Devices");
         ui.add_space(16.0);
 
         if !is_connected && !is_connecting {
@@ -30,7 +30,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
             } else {
                 egui::Button::new("Start Scan")
             };
-            if ui.add_sized([120.0, 28.0], scan_btn).clicked() {
+            if ui.add_sized([120.0, widgets::BTN_HEIGHT_HEADER], scan_btn).clicked() {
                 if is_scanning {
                     ble.send(BleCommand::StopScan);
                     state.connection.phase = ConnectionPhase::Disconnected;
@@ -45,9 +45,10 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
         if is_connected || is_connecting {
             if ui
                 .add_sized(
-                    [120.0, 28.0],
-                    egui::Button::new("Disconnect")
-                        .fill(egui::Color32::from_rgb(180, 50, 50)),
+                    [120.0, widgets::BTN_HEIGHT_HEADER],
+                    egui::Button::new(
+                        egui::RichText::new("Disconnect").color(egui::Color32::WHITE)
+                    ).fill(widgets::COLOR_BTN_RED),
                 )
                 .clicked()
             {
@@ -70,7 +71,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
     // Error display
     if let Some(err) = &state.connection.error_message {
         ui.horizontal(|ui| {
-            ui.colored_label(egui::Color32::from_rgb(255, 80, 80), format!("Error: {err}"));
+            ui.colored_label(widgets::COLOR_ERROR, format!("Error: {err}"));
         });
         ui.add_space(4.0);
     }
@@ -153,9 +154,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                 ui.add_space(16.0);
 
                 let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if ui.add_sized([100.0, 28.0], egui::Button::new(
+                if ui.add_sized([100.0, widgets::BTN_HEIGHT_INLINE], egui::Button::new(
                     egui::RichText::new("View").color(egui::Color32::WHITE)
-                ).fill(egui::Color32::from_rgb(50, 130, 80))).clicked()
+                ).fill(widgets::COLOR_BTN_GREEN)).clicked()
                     || enter_pressed
                 {
                     // Activate view mode
@@ -264,32 +265,48 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                 frame.show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
+                            // Row 1: Name + Data Tag
+                            let title = if let Some(tag) = device.decoded_tag {
+                                format!("{} ({:04X})", device.name, tag)
+                            } else {
+                                device.name.clone()
+                            };
                             ui.label(
-                                egui::RichText::new(&device.name)
+                                egui::RichText::new(&title)
                                     .size(16.0)
                                     .strong(),
                             );
                             ui.add_space(2.0);
+                            // Row 2: RSSI | Value+Units (if decoded) | Peripheral ID
                             ui.horizontal(|ui| {
                                 let rssi = device.rssi.unwrap_or(-100);
                                 let signal_color = if rssi > -60 {
-                                    egui::Color32::from_rgb(80, 200, 80)
+                                    widgets::COLOR_SUCCESS
                                 } else if rssi > -80 {
-                                    egui::Color32::from_rgb(255, 200, 50)
+                                    widgets::COLOR_WARNING
                                 } else {
-                                    egui::Color32::from_rgb(255, 80, 80)
+                                    widgets::COLOR_ERROR
                                 };
                                 ui.colored_label(signal_color, format!("{rssi} dBm"));
+
+                                if device.decoded_pin_valid {
+                                    if let Some(val) = device.decoded_value {
+                                        ui.separator();
+                                        let units_str = device.decoded_units
+                                            .map(|u| DataUnits::from_byte(u).label().to_string())
+                                            .unwrap_or_default();
+                                        ui.label(
+                                            egui::RichText::new(format!("{val:.6} {units_str}"))
+                                                .color(egui::Color32::from_rgb(120, 200, 255)),
+                                        );
+                                    }
+                                }
+
                                 ui.separator();
-                                let short_id = if device.peripheral_id.len() > 20 {
-                                    &device.peripheral_id[..20]
-                                } else {
-                                    &device.peripheral_id
-                                };
                                 ui.label(
-                                    egui::RichText::new(short_id)
-                                        .size(12.0)
-                                        .color(egui::Color32::from_rgb(140, 140, 140)),
+                                    egui::RichText::new(device.peripheral_id.to_uppercase())
+                                        .size(11.0)
+                                        .color(egui::Color32::from_rgb(120, 120, 130)),
                                 );
                             });
                         });
@@ -300,16 +317,18 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                                 && !state.ui.view_mode.show_pin_dialog
                             {
                                 if ui
-                                    .add_sized([100.0, 32.0], egui::Button::new("Connect"))
+                                    .add_sized([100.0, widgets::BTN_HEIGHT_HEADER], egui::Button::new(
+                                        egui::RichText::new("Connect").color(egui::Color32::WHITE)
+                                    ).fill(widgets::COLOR_BTN_GREEN))
                                     .clicked()
                                 {
                                     clicked_connect_idx = Some(idx);
                                 }
                                 ui.add_space(4.0);
                                 if ui
-                                    .add_sized([80.0, 32.0], egui::Button::new(
+                                    .add_sized([80.0, widgets::BTN_HEIGHT_HEADER], egui::Button::new(
                                         egui::RichText::new("View")
-                                    ).fill(egui::Color32::from_rgb(50, 100, 60)))
+                                    ))
                                     .clicked()
                                 {
                                     clicked_view_idx = Some(idx);
@@ -384,7 +403,7 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
                 egui::RichText::new("Live View (Connected)")
                     .size(18.0)
                     .strong()
-                    .color(egui::Color32::from_rgb(80, 200, 80)),
+                    .color(widgets::COLOR_SUCCESS),
             );
         } else {
             ui.label(
@@ -398,11 +417,11 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
                 if let Some(dev) = state.connection.scanned_devices.iter().find(|d| d.peripheral_id == *pid) {
                     let rssi = dev.rssi.unwrap_or(-100);
                     let signal_color = if rssi > -60 {
-                        egui::Color32::from_rgb(80, 200, 80)
+                        widgets::COLOR_SUCCESS
                     } else if rssi > -80 {
-                        egui::Color32::from_rgb(255, 200, 50)
+                        widgets::COLOR_WARNING
                     } else {
-                        egui::Color32::from_rgb(255, 80, 80)
+                        widgets::COLOR_ERROR
                     };
                     ui.separator();
                     ui.colored_label(signal_color, format!("{rssi} dBm"));
@@ -413,12 +432,25 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
                 ui.separator();
                 ui.label(format!("Tag: {tag:04X}"));
             }
+
+            if let Some(last) = state.ui.view_mode.last_update {
+                ui.separator();
+                let ago = last.elapsed().as_secs_f32();
+                let color = if ago < 3.0 {
+                    widgets::COLOR_SUCCESS
+                } else if ago < 10.0 {
+                    widgets::COLOR_WARNING
+                } else {
+                    widgets::COLOR_ERROR
+                };
+                ui.colored_label(color, format!("{ago:.0}s ago"));
+            }
         }
 
         // Right-aligned Back button
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.add_sized([100.0, 28.0], egui::Button::new(
-                egui::RichText::new("\u{2190} Back").size(15.0)
+                egui::RichText::new("<< Back").size(15.0)
             )).clicked() {
                 exit_view_mode(state);
             }
@@ -429,7 +461,7 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         // -- HUGE value display --
-        ui.add_space(16.0);
+        ui.add_space(8.0);
 
         let value_text = current_value
             .map(|v| format!("{v:.4}"))
@@ -439,16 +471,39 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
             .map(|u| DataUnits::from_byte(u).label().to_string())
             .unwrap_or_default();
 
-        ui.vertical_centered(|ui| {
-            ui.label(
-                egui::RichText::new(format!("{value_text}  {units_text}"))
-                    .size(64.0)
-                    .monospace()
-                    .strong(),
-            );
-        });
+        // Measure text sizes to center value+units as a group
+        let value_galley = ui.painter().layout_no_wrap(
+            value_text.clone(),
+            egui::FontId::monospace(140.0),
+            egui::Color32::WHITE,
+        );
+        let units_galley = ui.painter().layout_no_wrap(
+            units_text.clone(),
+            egui::FontId::proportional(28.0),
+            egui::Color32::from_rgb(160, 200, 255),
+        );
+        let total_w = value_galley.size().x + 12.0 + units_galley.size().x;
+        let value_h = value_galley.size().y;
+        let units_h = units_galley.size().y;
+        let row_h = value_h;
+        let avail_w = ui.available_width();
+        let start_x = (avail_w - total_w) / 2.0;
 
-        ui.add_space(12.0);
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(avail_w, row_h),
+            egui::Sense::hover(),
+        );
+        // Value: vertically centered
+        let value_pos = rect.min + egui::vec2(start_x, 0.0);
+        ui.painter().galley(value_pos, value_galley, egui::Color32::WHITE);
+        // Units: bottom-aligned with value
+        let units_pos = rect.min + egui::vec2(
+            start_x + (total_w - units_galley.size().x),
+            row_h - units_h - 4.0,
+        );
+        ui.painter().galley(units_pos, units_galley, egui::Color32::from_rgb(160, 200, 255));
+
+        ui.add_space(4.0);
 
         // -- Status flags --
         if let Some(status) = current_status {
@@ -466,7 +521,7 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
             });
         }
 
-        ui.add_space(12.0);
+        ui.add_space(4.0);
 
         // -- Time-series chart --
         let history: Vec<[f64; 2]> = if is_connected_view {
@@ -535,6 +590,15 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
                     .color(egui::Color32::from_rgb(140, 140, 140)),
             );
         }
+
+        if !is_connected_view {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Update rate depends on the device's Data Rate setting (connect to change)")
+                    .size(12.0)
+                    .color(egui::Color32::from_rgb(100, 100, 110)),
+            );
+        }
     });
 }
 
@@ -548,5 +612,6 @@ fn exit_view_mode(state: &mut AppState) {
     state.ui.view_mode.data_tag = None;
     state.ui.view_mode.history.clear();
     state.ui.view_mode.start_time = None;
+    state.ui.view_mode.last_update = None;
     state.ui.view_mode.source = ViewSource::Advertising;
 }

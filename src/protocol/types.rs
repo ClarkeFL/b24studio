@@ -651,6 +651,164 @@ impl DataUnits {
             _ => format!("{} ({})", self.label(), self.to_byte()),
         }
     }
+
+    /// Full name as used by the B24 Toolkit mobile app (lowercase)
+    pub fn app_name(self) -> &'static str {
+        match self {
+            // Ratio
+            Self::MvPerV => "millivolt per volt",
+            // Angle
+            Self::Radians => "radian",
+            Self::Degrees => "degree",
+            Self::Circumference => "circumference",
+            Self::Grade => "grade",
+            Self::ArcMinutes => "arc minute",
+            Self::ArcSeconds => "arc second",
+            Self::Revolutions => "revolution",
+            // Length
+            Self::Metres => "metre",
+            Self::Angstrom => "angstrom",
+            Self::AstronomicalUnit => "astronomical unit",
+            Self::Cm => "centimetre",
+            Self::ChainsGunters => "chain",
+            Self::Ell => "ell",
+            Self::Em => "em",
+            Self::Fathoms => "fathom",
+            Self::Feet => "foot",
+            Self::Furlongs => "furlong",
+            Self::Inches => "inch",
+            Self::Km => "kilometre",
+            Self::League => "league",
+            Self::Leagues => "league",
+            Self::LightYears => "light year",
+            Self::Lines => "line",
+            Self::Microns => "micron",
+            Self::NauticalMiles => "nautical mile",
+            Self::Miles => "mile",
+            Self::Mm => "millimetre",
+            Self::Mils => "mil",
+            Self::Nanometers => "nanometre",
+            Self::Parsec => "parsec",
+            Self::Yards => "yard",
+            // Mass
+            Self::Kg => "kilogram",
+            Self::Drams => "dram",
+            Self::Grains => "grain",
+            Self::Grams => "gram",
+            Self::Milligrams => "milligram",
+            Self::Oz => "ounce",
+            Self::Pennyweights => "pennyweight",
+            Self::Lbs => "pound",
+            Self::Kilopounds => "kilopound",
+            Self::Scruples => "scruple",
+            Self::Slug => "slug",
+            Self::TonsLong => "ton long",
+            Self::TonsMetric => "ton metric",
+            Self::Tonnes => "tonne",
+            Self::TonsShort => "ton short",
+            // Force
+            Self::Newtons => "newton",
+            Self::KiloNewtons => "kilonewton",
+            Self::MilliNewtons => "millinewton",
+            Self::MegaNewtons => "meganewton",
+            Self::Crinals => "crinal",
+            Self::Dynes => "dyne",
+            Self::GramsForce => "gram-force",
+            Self::JoulesPerCm => "joule per centimetre",
+            Self::Kgf => "kilogram-force",
+            Self::KgfKp => "kilopond",
+            Self::KgMsSquared => "kilogram metre per second squared",
+            Self::OuncesForce => "ounce-force",
+            Self::Lbf => "pound-force",
+            Self::Poundals => "poundal",
+            Self::TonsForceLong => "ton-force long",
+            Self::TonsForceShort => "ton-force short",
+            Self::TonsForceMetric => "ton-force metric",
+            // Pressure
+            Self::Bar => "bar",
+            Self::AtmosphereTech => "atmosphere technical",
+            Self::AtmospherePhys => "atmosphere",
+            Self::DynePerCmSq => "dyne per square centimetre",
+            Self::FtWater => "foot of water",
+            Self::InWater => "inch of water",
+            Self::GigaPascal => "gigapascal",
+            Self::HectoPascal => "hectopascal",
+            Self::KgfPerCmSq => "kilogram-force per square centimetre",
+            Self::KgfPerMSq => "kilogram-force per square metre",
+            Self::Microbar => "microbar",
+            Self::Pascal => "pascal",
+            Self::NewtonPerMSq => "newton per square metre",
+            Self::OzPerInSq => "ounce per square inch",
+            Self::LbPerFtSq => "pound per square foot",
+            Self::Psi => "pound per square inch",
+            Self::TonnePerCmSq => "tonne per square centimetre",
+            // Speed
+            Self::MetresPerSec => "metre per second",
+            Self::CmPerSec => "centimetre per second",
+            Self::FeetPerMin => "foot per minute",
+            Self::FeetPerSec => "foot per second",
+            Self::KmPerHr => "kilometre per hour",
+            Self::KmPerMin => "kilometre per minute",
+            Self::KmPerSec => "kilometre per second",
+            Self::Knots => "knot",
+            Self::MetresPerHr => "metre per hour",
+            Self::MetresPerMin => "metre per minute",
+            Self::MilesPerHr => "mile per hour",
+            Self::MilesPerMin => "mile per minute",
+            Self::MilesPerSec => "mile per second",
+            Self::NautMilesPerHr => "nautical mile per hour",
+            Self::NautMilesPerMin => "nautical mile per minute",
+            Self::NautMilesPerSec => "nautical mile per second",
+            // Torque
+            Self::NewtonMetre => "newton meter",
+            Self::MetreKg => "metre kilogram",
+            Self::FootPound => "foot pound",
+            Self::FootPoundal => "foot poundal",
+            Self::InchPound => "inch pound",
+            // Arbitrary
+            Self::Counts => "counts",
+            // Undefined / Unknown
+            Self::Undefined => "undefined",
+            Self::Other(_) => "unknown",
+        }
+    }
+
+    /// Unit group category as used by the B24 Toolkit mobile app
+    pub fn app_group(self) -> &'static str {
+        match self {
+            Self::MvPerV => "ratio",
+            Self::Radians | Self::Degrees | Self::Circumference | Self::Grade
+            | Self::ArcMinutes | Self::ArcSeconds | Self::Revolutions => "angle",
+            Self::Metres | Self::Angstrom | Self::AstronomicalUnit | Self::Cm
+            | Self::ChainsGunters | Self::Ell | Self::Em | Self::Fathoms | Self::Feet
+            | Self::Furlongs | Self::Inches | Self::Km | Self::League | Self::Leagues
+            | Self::LightYears | Self::Lines | Self::Microns | Self::NauticalMiles
+            | Self::Miles | Self::Mm | Self::Mils | Self::Nanometers | Self::Parsec
+            | Self::Yards => "length",
+            Self::Kg | Self::Drams | Self::Grains | Self::Grams | Self::Milligrams
+            | Self::Oz | Self::Pennyweights | Self::Lbs | Self::Kilopounds | Self::Scruples
+            | Self::Slug | Self::TonsLong | Self::TonsMetric | Self::Tonnes
+            | Self::TonsShort => "mass",
+            Self::Newtons | Self::KiloNewtons | Self::MilliNewtons | Self::MegaNewtons
+            | Self::Crinals | Self::Dynes | Self::GramsForce | Self::JoulesPerCm | Self::Kgf
+            | Self::KgfKp | Self::KgMsSquared | Self::OuncesForce | Self::Lbf | Self::Poundals
+            | Self::TonsForceLong | Self::TonsForceShort | Self::TonsForceMetric => "force",
+            Self::Bar | Self::AtmosphereTech | Self::AtmospherePhys | Self::DynePerCmSq
+            | Self::FtWater | Self::InWater | Self::GigaPascal | Self::HectoPascal
+            | Self::KgfPerCmSq | Self::KgfPerMSq | Self::Microbar | Self::Pascal
+            | Self::NewtonPerMSq | Self::OzPerInSq | Self::LbPerFtSq | Self::Psi
+            | Self::TonnePerCmSq => "pressure",
+            Self::MetresPerSec | Self::CmPerSec | Self::FeetPerMin | Self::FeetPerSec
+            | Self::KmPerHr | Self::KmPerMin | Self::KmPerSec | Self::Knots
+            | Self::MetresPerHr | Self::MetresPerMin | Self::MilesPerHr | Self::MilesPerMin
+            | Self::MilesPerSec | Self::NautMilesPerHr | Self::NautMilesPerMin
+            | Self::NautMilesPerSec => "speed",
+            Self::NewtonMetre | Self::MetreKg | Self::FootPound | Self::FootPoundal
+            | Self::InchPound => "torque",
+            Self::Counts => "arbitrary",
+            Self::Undefined | Self::Other(_) => "undefined",
+        }
+    }
 }
 
 /// A single row of the linearisation table
@@ -661,6 +819,14 @@ pub struct LinearisationEntry {
     pub gain: f32,
     pub offset: f32,
     pub valid_to: f32,
+}
+
+/// Data type for advanced parameters
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamType {
+    Float,
+    Uint32,
+    Uint8,
 }
 
 /// Advanced parameter indices — from Appendix C of B24 Technical Manual
@@ -712,6 +878,34 @@ impl AdvancedParam {
             Self::FastDataRate => "Fast Data Rate",
             Self::FastDuration => "Fast Duration",
             Self::FastLevel => "Fast Level",
+        }
+    }
+
+    pub fn data_type(self) -> ParamType {
+        match self {
+            Self::PeakValue | Self::TroughValue |
+            Self::DisplayMin | Self::DisplayMax |
+            Self::FilterLevel | Self::FastLevel => ParamType::Float,
+            Self::FilterSteps | Self::DigitalOutputFunction |
+            Self::FastDataRate | Self::FastDuration => ParamType::Uint32,
+            Self::LinDirection | Self::FastMode => ParamType::Uint8,
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::PeakValue => "Highest recorded value since last reset. Read-only.",
+            Self::TroughValue => "Lowest recorded value since last reset. Read-only.",
+            Self::DisplayMin => "Lower limit of the display range in engineering units. Used for bar graph scaling.",
+            Self::DisplayMax => "Upper limit of the display range in engineering units. Used for bar graph scaling.",
+            Self::FilterLevel => "Digital filter cutoff in engineering units. Set to 0 to disable. Filters out readings that change faster than this value per sample.",
+            Self::FilterSteps => "Number of filter averaging steps (1-255). Higher = smoother but slower response. Set to 1 for no filtering.",
+            Self::LinDirection => "Linearisation direction. 0 = ascending (normal), 1 = descending. Must match the direction of your calibration points.",
+            Self::DigitalOutputFunction => "Digital output mode. 0 = disabled, 1 = over Display Max, 2 = under Display Min, 3 = outside range, 4 = within range.",
+            Self::FastMode => "Fast transmission mode. 0 = disabled, 1 = timed burst, 2 = level triggered, 3 = continuous fast.",
+            Self::FastDataRate => "Data rate in ms during fast mode (e.g. 100 = 10 readings/sec). Minimum 50ms.",
+            Self::FastDuration => "Duration of fast mode burst in ms (e.g. 5000 = 5 seconds). Only used with timed burst mode.",
+            Self::FastLevel => "Threshold in engineering units that triggers fast mode when exceeded. Only used with level-triggered mode.",
         }
     }
 

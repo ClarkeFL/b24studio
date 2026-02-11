@@ -102,6 +102,12 @@ pub struct ScannedDevice {
     pub manufacturer_data: std::collections::HashMap<u16, Vec<u8>>,
     pub service_uuids: Vec<uuid::Uuid>,
     pub is_b24: bool,
+    // Decoded from advertising packet (auto-populated on each scan update)
+    pub decoded_tag: Option<u16>,     // always correct (plaintext in packet)
+    pub decoded_value: Option<f32>,   // only meaningful if decoded_pin_valid
+    pub decoded_units: Option<u8>,    // only meaningful if decoded_pin_valid
+    pub decoded_status: Option<u8>,   // only meaningful if decoded_pin_valid
+    pub decoded_pin_valid: bool,      // true = default View PIN worked
 }
 
 // ── Configuration Registers ────────────────────────────────────────
@@ -137,6 +143,12 @@ pub struct CalibrationRegisters {
     pub cal_pin: Option<u32>,
     pub cal_units: Option<u8>,
     pub linearisation_table: Vec<LinearisationEntry>,
+    /// Queue for reading linearisation table: (lin_index, field_name)
+    pub lin_read_queue: Vec<(u8, String)>,
+    /// Accumulated coefficients during a table read
+    pub lin_read_buf: Vec<f32>,
+    /// Number of points being read
+    pub lin_read_num_points: u8,
 }
 
 // ── Advanced Registers ─────────────────────────────────────────────
@@ -151,6 +163,16 @@ impl AdvancedRegisters {
         self.values.get(&index).and_then(|d| {
             if d.len() >= 4 {
                 Some(f32::from_be_bytes([d[0], d[1], d[2], d[3]]))
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn get_u32(&self, index: u8) -> Option<u32> {
+        self.values.get(&index).and_then(|d| {
+            if d.len() >= 4 {
+                Some(u32::from_be_bytes([d[0], d[1], d[2], d[3]]))
             } else {
                 None
             }
@@ -207,8 +229,10 @@ pub struct UiState {
     pub active_tab: Tab,
     pub cal_sub_tab: CalSubTab,
     pub edit: EditBuffers,
-    pub cal_wizard: CalWizardState,
+    pub auto_cal: AutoCalState,
+    pub table_cal: TableCalState,
     pub view_mode: ViewModeState,
+    pub mobile_export: MobileExportState,
     pub pending_reads: HashSet<Uuid>,
     pub pending_writes: HashSet<Uuid>,
     pub pending_adv_reads: HashSet<u8>,
@@ -221,8 +245,10 @@ impl Default for UiState {
             active_tab: Tab::Connect,
             cal_sub_tab: CalSubTab::AutoCal,
             edit: EditBuffers::default(),
-            cal_wizard: CalWizardState::default(),
+            auto_cal: AutoCalState::default(),
+            table_cal: TableCalState::default(),
             view_mode: ViewModeState::default(),
+            mobile_export: MobileExportState::default(),
             pending_reads: HashSet::new(),
             pending_writes: HashSet::new(),
             pending_adv_reads: HashSet::new(),
@@ -239,13 +265,15 @@ pub enum Tab {
     Calibration,
     Log,
     Live,
+    MobileExport,
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
 pub enum CalSubTab {
     #[default]
     AutoCal,
-    ManualCal,
+    TableCal,
+    Advanced,
 }
 
 /// Edit buffers for text input fields
@@ -274,53 +302,94 @@ pub struct EditBuffers {
     pub adv_data: String,
 }
 
+// ── Auto Calibration ──────────────────────────────────────────────
+
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
-pub enum WizardPhase {
+pub enum CaptureStatus {
     #[default]
-    Setup,        // User specifies number of cal points
-    CaptureZero,  // Capture the zero/reference point
-    CapturePoint, // Capture each calibration point (1..N)
-    Complete,     // All done
+    NotCaptured,
+    Capturing,
+    Captured,
 }
 
-pub struct WizardCalEntry {
-    pub index: u8,
-    pub valid_from: f32,
-    pub gain: f32,
-    pub offset: f32,
-    pub valid_to: f32,
-    pub target_from: f32,
-    pub target_to: f32,
+pub struct AutoCalPoint {
+    pub target_value: String,
+    pub base_value: Option<f32>,
+    pub capture_status: CaptureStatus,
 }
 
-pub struct CalWizardState {
-    pub phase: WizardPhase,
-    pub total_points: String,
-    pub current_step: u32,
-    pub known_value: String,
-    pub acquired_base: Option<f32>,
-    pub waiting_for_acquire: bool,
-    pub prev_known: f32,
-    pub prev_base: f32,
-    pub results: Vec<WizardCalEntry>,
-    pub pending_gain: Option<f32>,
-    pub pending_offset: Option<f32>,
-}
-
-impl Default for CalWizardState {
+impl Default for AutoCalPoint {
     fn default() -> Self {
         Self {
-            phase: WizardPhase::Setup,
-            total_points: "1".to_string(),
-            current_step: 0,
-            known_value: String::new(),
-            acquired_base: None,
-            waiting_for_acquire: false,
-            prev_known: 0.0,
-            prev_base: 0.0,
-            results: Vec::new(),
-            pending_gain: None,
-            pending_offset: None,
+            target_value: String::new(),
+            base_value: None,
+            capture_status: CaptureStatus::NotCaptured,
+        }
+    }
+}
+
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+pub enum AutoCalPhase {
+    #[default]
+    Editing,
+    Applied,
+}
+
+pub struct AutoCalState {
+    pub phase: AutoCalPhase,
+    pub points: Vec<AutoCalPoint>,
+    pub capturing_index: Option<usize>,
+    pub error: Option<String>,
+    pub has_been_applied: bool,
+}
+
+impl Default for AutoCalState {
+    fn default() -> Self {
+        Self {
+            phase: AutoCalPhase::Editing,
+            points: vec![
+                AutoCalPoint {
+                    target_value: "0".to_string(),
+                    base_value: None,
+                    capture_status: CaptureStatus::NotCaptured,
+                },
+                AutoCalPoint::default(),
+            ],
+            capturing_index: None,
+            error: None,
+            has_been_applied: false,
+        }
+    }
+}
+
+// ── Table Calibration ──────────────────────────────────────────────
+
+pub struct TableCalRow {
+    pub mv_per_v: String,   // raw mV/V input
+    pub eng_value: String,  // engineering value input
+}
+
+impl Default for TableCalRow {
+    fn default() -> Self {
+        Self {
+            mv_per_v: String::new(),
+            eng_value: String::new(),
+        }
+    }
+}
+
+pub struct TableCalState {
+    pub rows: Vec<TableCalRow>,
+    pub applied: bool,
+    pub error: Option<String>,
+}
+
+impl Default for TableCalState {
+    fn default() -> Self {
+        Self {
+            rows: vec![TableCalRow::default(), TableCalRow::default()],
+            applied: false,
+            error: None,
         }
     }
 }
@@ -347,6 +416,7 @@ pub struct ViewModeState {
     pub data_tag: Option<u16>,
     pub history: VecDeque<(f64, f32)>,
     pub start_time: Option<std::time::Instant>,
+    pub last_update: Option<std::time::Instant>,
 }
 
 impl Default for ViewModeState {
@@ -364,6 +434,49 @@ impl Default for ViewModeState {
             data_tag: None,
             history: VecDeque::new(),
             start_time: None,
+            last_update: None,
+        }
+    }
+}
+
+// ── Mobile App Export ─────────────────────────────────────────────
+
+pub struct MobileExportRow {
+    pub data_tag: String,
+    pub description: String,
+    pub unit_byte: Option<u8>,
+}
+
+impl Default for MobileExportRow {
+    fn default() -> Self {
+        Self {
+            data_tag: String::new(),
+            description: String::new(),
+            unit_byte: None,
+        }
+    }
+}
+
+pub struct MobileExportState {
+    pub project_name: String,
+    pub view_pin: String,
+    pub timeout_index: usize,
+    pub transmitters: Vec<MobileExportRow>,
+    pub decimal_places: usize,
+    pub last_json: String,
+    pub populated_from_device: bool,
+}
+
+impl Default for MobileExportState {
+    fn default() -> Self {
+        Self {
+            project_name: String::new(),
+            view_pin: "0000".to_string(),
+            timeout_index: 2, // 12 seconds default
+            transmitters: vec![MobileExportRow::default()],
+            decimal_places: 2,
+            last_json: String::new(),
+            populated_from_device: false,
         }
     }
 }

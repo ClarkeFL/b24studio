@@ -1,15 +1,16 @@
 use eframe::egui;
 use crate::state::{AppState, ConnectionPhase};
 use crate::protocol::types::DataUnits;
+use crate::ui::widgets;
 
 pub fn show(ui: &mut egui::Ui, state: &AppState) {
     ui.horizontal(|ui| {
         // Connection status indicator
         let (color, text) = match state.connection.phase {
-            ConnectionPhase::Disconnected => (egui::Color32::from_rgb(255, 80, 80), "Disconnected"),
-            ConnectionPhase::Scanning => (egui::Color32::from_rgb(255, 200, 50), "Scanning..."),
-            ConnectionPhase::Connecting => (egui::Color32::from_rgb(255, 200, 50), "Connecting..."),
-            ConnectionPhase::Connected => (egui::Color32::from_rgb(80, 200, 80), "Connected"),
+            ConnectionPhase::Disconnected => (widgets::COLOR_ERROR, "Disconnected"),
+            ConnectionPhase::Scanning => (widgets::COLOR_WARNING, "Scanning..."),
+            ConnectionPhase::Connecting => (widgets::COLOR_WARNING, "Connecting..."),
+            ConnectionPhase::Connected => (widgets::COLOR_SUCCESS, "Connected"),
         };
 
         // Colored dot
@@ -34,9 +35,9 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
         // Battery
         if let Some(batt) = state.config.battery_value {
             let batt_color = if batt < 2.5 {
-                egui::Color32::from_rgb(255, 80, 80)
+                widgets::COLOR_ERROR
             } else {
-                egui::Color32::from_rgb(80, 200, 80)
+                widgets::COLOR_SUCCESS
             };
             ui.colored_label(batt_color, format!("Batt: {batt:.2}V"));
             ui.separator();
@@ -55,9 +56,9 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
         if let Some(status) = state.live_data.current_status {
             let desc = status.description();
             let color = if desc == "OK" {
-                egui::Color32::from_rgb(80, 200, 80)
+                widgets::COLOR_SUCCESS
             } else {
-                egui::Color32::from_rgb(255, 200, 50)
+                widgets::COLOR_WARNING
             };
             ui.colored_label(color, desc);
         }
@@ -65,7 +66,7 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
         // Error
         if let Some(err) = &state.connection.error_message {
             ui.separator();
-            ui.colored_label(egui::Color32::from_rgb(255, 80, 80), err.as_str());
+            ui.colored_label(widgets::COLOR_ERROR, err.as_str());
         }
     });
 }

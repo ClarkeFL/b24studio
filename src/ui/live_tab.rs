@@ -3,15 +3,17 @@ use egui_plot::{Plot, Line, PlotPoints};
 use crate::state::{AppState, ViewSource, Tab};
 use crate::ble::manager::BleHandle;
 use crate::protocol::types::DataUnits;
-use crate::ui::widgets::status_indicator;
+use crate::ui::widgets::{self, status_indicator};
 
 pub fn show(ui: &mut egui::Ui, state: &mut AppState, _ble: &BleHandle) {
+    ui.add_space(8.0);
+
     ui.horizontal(|ui| {
-        ui.heading("Live Data");
+        widgets::page_header(ui, "Live Data");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.add_sized([140.0, 28.0], egui::Button::new(
-                egui::RichText::new("Fullscreen View").size(14.0)
-            ).fill(egui::Color32::from_rgb(50, 100, 60))).clicked() {
+            if ui.add_sized([140.0, widgets::BTN_HEIGHT_HEADER], egui::Button::new(
+                egui::RichText::new("Fullscreen View").size(15.0)
+            ).fill(widgets::COLOR_BTN_GREEN)).clicked() {
                 state.ui.view_mode.active = true;
                 state.ui.view_mode.source = ViewSource::Connected;
                 state.ui.view_mode.device_name = "Connected Device".to_string();

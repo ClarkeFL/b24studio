@@ -109,46 +109,54 @@ pub struct DecodedAdvert {
     pub status: u8,
     pub units: u8,
     pub value: f32,
+    pub pin_valid: bool, // true if verification tags match → View PIN is correct
 }
 
 /// Decode a B24 advertising packet from manufacturer data (key 0x04C3).
 ///
-/// B24 advert format (after XOR decoding):
-///   Byte 0:   Format ID (0x01)
-///   Bytes 1-2: Data Tag (u16 BE)
-///   Byte 3:   Status (u8)
-///   Byte 4:   Units (u8)
-///   Bytes 5-8: Data Value (IEEE 754 f32 BE)
-///   Bytes 9-12: Data Tag repeated (verification)
+/// B24 advert format:
+///   Byte 0:    Format ID (0x01) — plaintext
+///   Bytes 1-2: Data Tag (u16 BE) — plaintext (always readable)
+///   Byte 3:    Status (u8) — XOR-encoded
+///   Byte 4:    Units (u8) — XOR-encoded
+///   Bytes 5-8: Data Value (IEEE 754 f32 BE) — XOR-encoded
+///   Bytes 9-10: Data Tag verification #1 — XOR-encoded
+///   Bytes 11-12: Data Tag verification #2 — XOR-encoded
 ///
-/// All bytes are XOR-encoded with the effective seed (base seed ^ View PIN).
+/// Only bytes 3-12 are XOR-encoded with the encoding array (seed ^ View PIN).
+/// The encoding array index starts at 0 for byte 3.
 pub fn decode_advertising(raw: &[u8], view_pin: &str) -> Option<DecodedAdvert> {
-    if raw.len() < 9 {
+    if raw.len() < 13 {
         return None;
     }
-    let mut data = raw.to_vec();
+
+    // Byte 0: Format ID (plaintext, not encoded)
+    if raw[0] != 0x01 {
+        return None;
+    }
+
+    // Bytes 1-2: Data Tag (plaintext — always readable regardless of View PIN)
+    let data_tag = u16::from_be_bytes([raw[1], raw[2]]);
+
+    // Bytes 3-12: XOR-encoded portion
     let seed = compute_xor_seed(view_pin);
-    xor_advertising(&mut data, &seed);
+    let mut encoded = raw[3..13].to_vec();
+    xor_advertising(&mut encoded, &seed);
 
-    // Validate format ID
-    if data[0] != 0x01 {
-        return None;
-    }
+    let status = encoded[0];
+    let units = encoded[1];
+    let value = f32::from_be_bytes([encoded[2], encoded[3], encoded[4], encoded[5]]);
 
-    let data_tag = u16::from_be_bytes([data[1], data[2]]);
-    let status = data[3];
-    let units = data[4];
-    let value = f32::from_be_bytes([data[5], data[6], data[7], data[8]]);
-
-    // Basic validation: reject NaN/Infinity as likely wrong PIN
-    if value.is_nan() || value.is_infinite() {
-        return None;
-    }
+    // Verify View PIN correctness: decoded tag copies should match plaintext tag
+    let verify_tag1 = u16::from_be_bytes([encoded[6], encoded[7]]);
+    let verify_tag2 = u16::from_be_bytes([encoded[8], encoded[9]]);
+    let pin_valid = verify_tag1 == data_tag && verify_tag2 == data_tag;
 
     Some(DecodedAdvert {
         data_tag,
         status,
         units,
         value,
+        pin_valid,
     })
 }
