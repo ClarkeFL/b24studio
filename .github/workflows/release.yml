@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --release
+
+      # Sign executable (only if certificate secrets are configured)
+      - name: Sign executable
+        if: env.CODESIGN_BASE64 != ''
+        env:
+          CODESIGN_BASE64: ${{ secrets.CODESIGN_BASE64 }}
+          CODESIGN_PWD: ${{ secrets.CODESIGN_PWD }}
+        run: |
+          New-Item -ItemType directory -Path certificate
+          Set-Content -Path certificate\certificate.txt -Value $env:CODESIGN_BASE64
+          certutil -decode certificate\certificate.txt certificate\certificate.pfx
+
+          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits" -Recurse -Filter "signtool.exe" |
+            Where-Object { $_.FullName -like "*x64*" } |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          & $signtool sign /fd SHA256 /p $env:CODESIGN_PWD /f certificate\certificate.pfx /tr "http://timestamp.sectigo.com/rfc3161" /td sha256 target\release\b24-tool.exe
+
+          Remove-Item -Recurse -Force certificate
+        shell: pwsh
+
+      # Build Inno Setup installer
+      - name: Build installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\b24-tool-setup.iss
+        shell: pwsh
+
+      # Sign installer (only if certificate secrets are configured)
+      - name: Sign installer
+        if: env.CODESIGN_BASE64 != ''
+        env:
+          CODESIGN_BASE64: ${{ secrets.CODESIGN_BASE64 }}
+          CODESIGN_PWD: ${{ secrets.CODESIGN_PWD }}
+        run: |
+          New-Item -ItemType directory -Path certificate
+          Set-Content -Path certificate\certificate.txt -Value $env:CODESIGN_BASE64
+          certutil -decode certificate\certificate.txt certificate\certificate.pfx
+
+          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits" -Recurse -Filter "signtool.exe" |
+            Where-Object { $_.FullName -like "*x64*" } |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          Get-ChildItem -Path target\installer\*.exe | ForEach-Object {
+            & $signtool sign /fd SHA256 /p $env:CODESIGN_PWD /f certificate\certificate.pfx /tr "http://timestamp.sectigo.com/rfc3161" /td sha256 $_.FullName
+          }
+
+          Remove-Item -Recurse -Force certificate
+        shell: pwsh
+
+      # Create zip of standalone exe
+      - name: Package standalone exe
+        run: |
+          Compress-Archive -Path target\release\b24-tool.exe -DestinationPath "target\b24-tool-${{ github.ref_name }}-windows-x64.zip"
+        shell: pwsh
+
+      # Upload to GitHub Release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/b24-tool-${{ github.ref_name }}-windows-x64.zip
+            target/installer/*.exe
+          generate_release_notes: true
