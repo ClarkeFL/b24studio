@@ -1,7 +1,8 @@
-use std::collections::{VecDeque, HashMap};
+use std::collections::{VecDeque, HashMap, HashSet};
 use chrono::{DateTime, Local};
 use uuid::Uuid;
 
+use crate::ble::commands::BleCommand;
 use crate::protocol::types::*;
 
 /// Top-level application state. Owned exclusively by the UI thread.
@@ -16,6 +17,58 @@ pub struct AppState {
     pub ui: UiState,
 }
 
+impl AppState {
+    /// Track a BLE command as pending (for spinner display).
+    pub fn track_send(&mut self, cmd: &BleCommand) {
+        match cmd {
+            BleCommand::ReadCharacteristic(uuid) => {
+                self.ui.pending_reads.insert(*uuid);
+            }
+            BleCommand::WriteCharacteristic { uuid, .. } => {
+                self.ui.pending_writes.insert(*uuid);
+            }
+            BleCommand::ReadAll(uuids) => {
+                for u in uuids {
+                    self.ui.pending_reads.insert(*u);
+                }
+            }
+            BleCommand::ReadAdvanced { index } => {
+                self.ui.pending_adv_reads.insert(*index);
+            }
+            BleCommand::WriteAdvanced { index, .. } => {
+                self.ui.pending_adv_writes.insert(*index);
+            }
+            _ => {}
+        }
+    }
+
+    /// Check if a characteristic UUID has a pending read or write.
+    pub fn is_pending(&self, uuid: &Uuid) -> bool {
+        self.ui.pending_reads.contains(uuid) || self.ui.pending_writes.contains(uuid)
+    }
+
+    /// Check if an advanced param index has a pending read or write.
+    pub fn is_adv_pending(&self, index: u8) -> bool {
+        self.ui.pending_adv_reads.contains(&index) || self.ui.pending_adv_writes.contains(&index)
+    }
+
+    /// Clear all pending operations (e.g. on disconnect or error).
+    pub fn clear_pending(&mut self) {
+        self.ui.pending_reads.clear();
+        self.ui.pending_writes.clear();
+        self.ui.pending_adv_reads.clear();
+        self.ui.pending_adv_writes.clear();
+    }
+
+    /// Whether any BLE operations are pending.
+    pub fn has_pending(&self) -> bool {
+        !self.ui.pending_reads.is_empty()
+            || !self.ui.pending_writes.is_empty()
+            || !self.ui.pending_adv_reads.is_empty()
+            || !self.ui.pending_adv_writes.is_empty()
+    }
+}
+
 // ── Connection ─────────────────────────────────────────────────────
 
 #[derive(Default)]
@@ -26,6 +79,10 @@ pub struct ConnectionState {
     pub selected_device_index: Option<usize>,
     pub error_message: Option<String>,
     pub status_text: String,
+    /// When true, shows PIN entry dialog before connecting
+    pub show_pin_dialog: bool,
+    /// Peripheral ID of the device we want to connect to (pending PIN entry)
+    pub pending_connect_id: Option<String>,
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
@@ -55,8 +112,8 @@ pub struct ConfigRegisters {
     pub data_rate: Option<u32>,
     pub resolution: Option<u8>,
     pub battery_threshold: Option<f32>,
-    pub view_pin: Option<u32>,
-    pub serial_number: Option<String>,
+    pub view_pin: Option<String>,
+    pub serial_number: Option<u32>,
     pub data_tag: Option<String>,
     pub battery_value: Option<f32>,
     pub system_zero: Option<f32>,
@@ -151,7 +208,10 @@ pub struct UiState {
     pub cal_sub_tab: CalSubTab,
     pub edit: EditBuffers,
     pub cal_wizard: CalWizardState,
-    pub pending_reads: Vec<Uuid>,
+    pub pending_reads: HashSet<Uuid>,
+    pub pending_writes: HashSet<Uuid>,
+    pub pending_adv_reads: HashSet<u8>,
+    pub pending_adv_writes: HashSet<u8>,
 }
 
 impl Default for UiState {
@@ -161,7 +221,10 @@ impl Default for UiState {
             cal_sub_tab: CalSubTab::AutoCal,
             edit: EditBuffers::default(),
             cal_wizard: CalWizardState::default(),
-            pending_reads: Vec::new(),
+            pending_reads: HashSet::new(),
+            pending_writes: HashSet::new(),
+            pending_adv_reads: HashSet::new(),
+            pending_adv_writes: HashSet::new(),
         }
     }
 }

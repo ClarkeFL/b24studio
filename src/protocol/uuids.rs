@@ -52,6 +52,7 @@ pub fn char_adv_data() -> Uuid { b24_uuid(0xa971726d) }
 /// All configuration characteristic UUIDs for "Read All Registers"
 pub fn all_config_uuids() -> Vec<Uuid> {
     vec![
+        char_config_pin(),
         char_data_rate(),
         char_resolution(),
         char_battery_thresh(),

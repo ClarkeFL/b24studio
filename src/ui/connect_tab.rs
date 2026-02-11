@@ -10,19 +10,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
 
     ui.add_space(8.0);
 
-    // Connection controls row
+    // Header row with scan/disconnect controls
     ui.horizontal(|ui| {
         ui.heading("B24 Devices");
-        ui.add_space(16.0);
-
-        ui.label("Config PIN:");
-        ui.add(
-            egui::TextEdit::singleline(&mut state.connection.config_pin)
-                .desired_width(80.0)
-                .hint_text("9999")
-                .font(egui::TextStyle::Monospace),
-        );
-
         ui.add_space(16.0);
 
         if !is_connected && !is_connecting {
@@ -43,7 +33,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
             }
         }
 
-        if is_connected {
+        if is_connected || is_connecting {
             if ui
                 .add_sized(
                     [120.0, 28.0],
@@ -54,6 +44,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
             {
                 ble.send(BleCommand::Disconnect);
                 state.connection.phase = ConnectionPhase::Disconnected;
+                state.connection.show_pin_dialog = false;
+                state.connection.pending_connect_id = None;
+                state.clear_pending();
             }
         }
 
@@ -73,10 +66,59 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
         ui.add_space(4.0);
     }
 
+    // ── PIN Dialog ──────────────────────────────────────────────
+    if state.connection.show_pin_dialog {
+        ui.separator();
+        ui.add_space(8.0);
+
+        let frame = egui::Frame::none()
+            .inner_margin(16.0)
+            .rounding(8.0)
+            .fill(egui::Color32::from_rgb(35, 40, 55))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 140, 220)));
+
+        frame.show(ui, |ui| {
+            ui.heading("Enter Configuration PIN");
+            ui.add_space(8.0);
+            ui.label("The B24 module requires a Configuration PIN to allow access.");
+            ui.label("Default PIN is 0 (zero). Enter the PIN and click Connect.");
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                ui.label("PIN:");
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut state.connection.config_pin)
+                        .desired_width(120.0)
+                        .hint_text("0")
+                        .font(egui::TextStyle::Monospace),
+                );
+                // Auto-focus the PIN field
+                response.request_focus();
+
+                ui.add_space(16.0);
+
+                // Submit on Enter key (while field is focused) or button click
+                let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if ui.add_sized([100.0, 28.0], egui::Button::new("Connect")).clicked()
+                    || enter_pressed
+                {
+                    do_connect(state, ble);
+                }
+
+                if ui.button("Cancel").clicked() {
+                    state.connection.show_pin_dialog = false;
+                    state.connection.pending_connect_id = None;
+                }
+            });
+        });
+
+        ui.add_space(8.0);
+    }
+
     ui.separator();
     ui.add_space(4.0);
 
-    // Filter: only show B24 devices (those with manufacturer data or service UUIDs)
+    // Filter: only show B24 devices
     let b24_devices: Vec<usize> = state
         .connection
         .scanned_devices
@@ -97,7 +139,6 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                         .size(16.0)
                         .color(egui::Color32::from_rgb(180, 180, 180)),
                 );
-                // Show count of total vs B24 devices found
                 let total = state.connection.scanned_devices.len();
                 if total > 0 {
                     ui.add_space(4.0);
@@ -122,7 +163,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
     } else {
         // Device cards
         egui::ScrollArea::vertical().show(ui, |ui| {
-            let mut connect_idx = None;
+            let mut clicked_connect_idx = None;
 
             for &idx in &b24_devices {
                 let device = &state.connection.scanned_devices[idx];
@@ -147,7 +188,6 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
 
                 frame.show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        // Device info (left side)
                         ui.vertical(|ui| {
                             ui.label(
                                 egui::RichText::new(&device.name)
@@ -155,9 +195,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                                     .strong(),
                             );
                             ui.add_space(2.0);
-
                             ui.horizontal(|ui| {
-                                // RSSI signal indicator
                                 let rssi = device.rssi.unwrap_or(-100);
                                 let signal_color = if rssi > -60 {
                                     egui::Color32::from_rgb(80, 200, 80)
@@ -166,13 +204,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                                 } else {
                                     egui::Color32::from_rgb(255, 80, 80)
                                 };
-                                ui.colored_label(
-                                    signal_color,
-                                    format!("{rssi} dBm"),
-                                );
+                                ui.colored_label(signal_color, format!("{rssi} dBm"));
                                 ui.separator();
-
-                                // Show peripheral ID (short)
                                 let short_id = if device.peripheral_id.len() > 20 {
                                     &device.peripheral_id[..20]
                                 } else {
@@ -187,15 +220,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                         });
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if !is_connected && !is_connecting {
+                            if !is_connected && !is_connecting && !state.connection.show_pin_dialog {
                                 if ui
-                                    .add_sized(
-                                        [100.0, 32.0],
-                                        egui::Button::new("Connect"),
-                                    )
+                                    .add_sized([100.0, 32.0], egui::Button::new("Connect"))
                                     .clicked()
                                 {
-                                    connect_idx = Some(idx);
+                                    clicked_connect_idx = Some(idx);
                                 }
                             }
                         });
@@ -204,21 +234,27 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                 ui.add_space(4.0);
             }
 
-            if let Some(idx) = connect_idx {
-                let pin: u32 = state
-                    .connection
-                    .config_pin
-                    .parse()
-                    .unwrap_or(9999);
-                let device = &state.connection.scanned_devices[idx];
+            // When user clicks Connect on a device, show PIN dialog
+            if let Some(idx) = clicked_connect_idx {
                 state.connection.selected_device_index = Some(idx);
-                state.connection.phase = ConnectionPhase::Connecting;
+                let pid = state.connection.scanned_devices[idx].peripheral_id.clone();
+                state.connection.pending_connect_id = Some(pid);
+                state.connection.show_pin_dialog = true;
                 state.connection.error_message = None;
-                ble.send(BleCommand::Connect {
-                    peripheral_id: device.peripheral_id.clone(),
-                    config_pin: pin,
-                });
             }
+        });
+    }
+}
+
+fn do_connect(state: &mut AppState, ble: &BleHandle) {
+    state.connection.show_pin_dialog = false;
+    if let Some(pid) = state.connection.pending_connect_id.take() {
+        let pin: u32 = state.connection.config_pin.parse().unwrap_or(0);
+        state.connection.phase = ConnectionPhase::Connecting;
+        state.connection.error_message = None;
+        ble.send(BleCommand::Connect {
+            peripheral_id: pid,
+            config_pin: pin,
         });
     }
 }

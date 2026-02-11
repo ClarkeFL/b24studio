@@ -23,7 +23,10 @@
       "Bash(cmd.exe /c \"where /R \"\"C:\\\\Program Files\"\" link.exe 2>nul\")",
       "Bash(cmd.exe /c \"where /R \"\"C:\\\\Program Files \\(x86\\)\"\" link.exe 2>nul\")",
       "Bash(export:*)",
-      "Bash(cmd.exe:*)"
+      "Bash(cmd.exe:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(taskkill:*)"
     ]
   }
 }

@@ -151,29 +151,30 @@ impl StatusByte {
     }
 }
 
-/// Units lookup table (subset from B24 documentation Appendix B)
+/// Units lookup table from B24 Technical Manual Appendix B
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum DataUnits {
     #[default]
-    MvPerV,
-    Kg,
-    Grams,
-    Lbs,
-    Oz,
-    Newtons,
-    KiloNewtons,
-    Lbf,
-    Kgf,
-    Bar,
-    Psi,
-    Pascal,
-    Nm,
-    Metres,
-    Cm,
-    Mm,
-    Feet,
-    Inches,
-    Counts,
+    MvPerV,       // 0x00
+    Kg,           // 0x2D
+    Grams,        // 0x30
+    Lbs,          // 0x34
+    Oz,           // 0x32
+    Newtons,      // 0x41
+    KiloNewtons,  // 0x42
+    MilliNewtons, // 0x43
+    Lbf,          // 0x4D
+    Kgf,          // 0x49
+    Bar,          // 0x5F
+    Psi,          // 0x6E
+    Pascal,       // 0x6A
+    NewtonMetre,  // 0x96
+    Metres,       // 0x0F
+    Cm,           // 0x12
+    Mm,           // 0x22
+    Feet,         // 0x17
+    Inches,       // 0x19
+    Counts,       // 0xC8
     Other(u8),
 }
 
@@ -181,24 +182,25 @@ impl DataUnits {
     pub fn from_byte(b: u8) -> Self {
         match b {
             0x00 => Self::MvPerV,
-            0x01 => Self::Kg,
-            0x1F => Self::Grams,
-            0x32 => Self::Lbs,
-            0x31 => Self::Oz,
+            0x2D => Self::Kg,
+            0x30 => Self::Grams,
+            0x34 => Self::Lbs,
+            0x32 => Self::Oz,
             0x41 => Self::Newtons,
             0x42 => Self::KiloNewtons,
-            0x4E => Self::Lbf,
-            0x4A => Self::Kgf,
+            0x43 => Self::MilliNewtons,
+            0x4D => Self::Lbf,
+            0x49 => Self::Kgf,
             0x5F => Self::Bar,
-            0x61 => Self::Psi,
-            0x6B => Self::Pascal,
-            0x78 => Self::Nm,
+            0x6E => Self::Psi,
+            0x6A => Self::Pascal,
+            0x96 => Self::NewtonMetre,
             0x0F => Self::Metres,
             0x12 => Self::Cm,
-            0x23 => Self::Mm,
-            0x19 => Self::Feet,
-            0x1A => Self::Inches,
-            0x96 => Self::Counts,
+            0x22 => Self::Mm,
+            0x17 => Self::Feet,
+            0x19 => Self::Inches,
+            0xC8 => Self::Counts,
             other => Self::Other(other),
         }
     }
@@ -206,24 +208,25 @@ impl DataUnits {
     pub fn to_byte(self) -> u8 {
         match self {
             Self::MvPerV => 0x00,
-            Self::Kg => 0x01,
-            Self::Grams => 0x1F,
-            Self::Lbs => 0x32,
-            Self::Oz => 0x31,
+            Self::Kg => 0x2D,
+            Self::Grams => 0x30,
+            Self::Lbs => 0x34,
+            Self::Oz => 0x32,
             Self::Newtons => 0x41,
             Self::KiloNewtons => 0x42,
-            Self::Lbf => 0x4E,
-            Self::Kgf => 0x4A,
+            Self::MilliNewtons => 0x43,
+            Self::Lbf => 0x4D,
+            Self::Kgf => 0x49,
             Self::Bar => 0x5F,
-            Self::Psi => 0x61,
-            Self::Pascal => 0x6B,
-            Self::Nm => 0x78,
+            Self::Psi => 0x6E,
+            Self::Pascal => 0x6A,
+            Self::NewtonMetre => 0x96,
             Self::Metres => 0x0F,
             Self::Cm => 0x12,
-            Self::Mm => 0x23,
-            Self::Feet => 0x19,
-            Self::Inches => 0x1A,
-            Self::Counts => 0x96,
+            Self::Mm => 0x22,
+            Self::Feet => 0x17,
+            Self::Inches => 0x19,
+            Self::Counts => 0xC8,
             Self::Other(b) => b,
         }
     }
@@ -233,16 +236,17 @@ impl DataUnits {
             Self::MvPerV => "mV/V",
             Self::Kg => "kg",
             Self::Grams => "g",
-            Self::Lbs => "lbs",
+            Self::Lbs => "lb",
             Self::Oz => "oz",
             Self::Newtons => "N",
             Self::KiloNewtons => "kN",
+            Self::MilliNewtons => "mN",
             Self::Lbf => "lbf",
             Self::Kgf => "kgf",
             Self::Bar => "bar",
             Self::Psi => "psi",
             Self::Pascal => "Pa",
-            Self::Nm => "N m",
+            Self::NewtonMetre => "N m",
             Self::Metres => "m",
             Self::Cm => "cm",
             Self::Mm => "mm",
@@ -260,11 +264,43 @@ impl DataUnits {
         Self::Lbs,
         Self::Newtons,
         Self::KiloNewtons,
-        Self::Nm,
+        Self::NewtonMetre,
         Self::Bar,
         Self::Psi,
         Self::Counts,
     ];
+
+    /// All known units for dropdown selection
+    pub const ALL: &'static [DataUnits] = &[
+        Self::MvPerV,
+        Self::Kg,
+        Self::Grams,
+        Self::Lbs,
+        Self::Oz,
+        Self::Newtons,
+        Self::KiloNewtons,
+        Self::MilliNewtons,
+        Self::Lbf,
+        Self::Kgf,
+        Self::Bar,
+        Self::Psi,
+        Self::Pascal,
+        Self::NewtonMetre,
+        Self::Metres,
+        Self::Cm,
+        Self::Mm,
+        Self::Feet,
+        Self::Inches,
+        Self::Counts,
+    ];
+
+    /// Display label including the byte value for clarity
+    pub fn dropdown_label(self) -> String {
+        match self {
+            Self::Other(b) => format!("Unknown (0x{b:02X})"),
+            _ => format!("{} (0x{:02X})", self.label(), self.to_byte()),
+        }
+    }
 }
 
 /// A single row of the linearisation table
@@ -277,22 +313,21 @@ pub struct LinearisationEntry {
     pub valid_to: f32,
 }
 
-/// Advanced parameter indices
+/// Advanced parameter indices — from Appendix C of B24 Technical Manual
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdvancedParam {
-    PeakValue,
-    TroughValue,
-    DisplayMin,
-    DisplayMax,
-    FilterLevel,
-    FilterSteps,
-    LinAutoIncrement,
-    LinDirection,
-    DigitalOutputFunction,
-    FastMode,
-    FastDataRate,
-    FastDuration,
-    FastLevel,
+    PeakValue,             // 5  - Read only, FLOAT
+    TroughValue,           // 6  - Read only, FLOAT
+    DisplayMin,            // 26 - R/W, FLOAT
+    DisplayMax,            // 27 - R/W, FLOAT
+    FilterLevel,           // 28 - R/W, FLOAT
+    FilterSteps,           // 29 - R/W, UINT32
+    LinDirection,          // 35 - R/W, UINT8
+    DigitalOutputFunction, // 39 - R/W, UINT32
+    FastMode,              // 40 - R/W, UINT8
+    FastDataRate,          // 41 - R/W, UINT32
+    FastDuration,          // 42 - R/W, UINT32
+    FastLevel,             // 43 - R/W, FLOAT
 }
 
 impl AdvancedParam {
@@ -302,15 +337,14 @@ impl AdvancedParam {
             Self::TroughValue => 6,
             Self::DisplayMin => 26,
             Self::DisplayMax => 27,
-            Self::FilterLevel => 35,
-            Self::FilterSteps => 36,
-            Self::LinAutoIncrement => 37,
-            Self::LinDirection => 38,
+            Self::FilterLevel => 28,
+            Self::FilterSteps => 29,
+            Self::LinDirection => 35,
             Self::DigitalOutputFunction => 39,
-            Self::FastMode => 42,
-            Self::FastDataRate => 43,
-            Self::FastDuration => 44,
-            Self::FastLevel => 45,
+            Self::FastMode => 40,
+            Self::FastDataRate => 41,
+            Self::FastDuration => 42,
+            Self::FastLevel => 43,
         }
     }
 
@@ -322,7 +356,6 @@ impl AdvancedParam {
             Self::DisplayMax => "Display Max",
             Self::FilterLevel => "Filter Level",
             Self::FilterSteps => "Filter Steps",
-            Self::LinAutoIncrement => "Lin Auto-Increment",
             Self::LinDirection => "Lin Direction",
             Self::DigitalOutputFunction => "Digital Output Func",
             Self::FastMode => "Fast Mode",
@@ -339,7 +372,6 @@ impl AdvancedParam {
         Self::DisplayMax,
         Self::FilterLevel,
         Self::FilterSteps,
-        Self::LinAutoIncrement,
         Self::LinDirection,
         Self::DigitalOutputFunction,
         Self::FastMode,
@@ -349,16 +381,16 @@ impl AdvancedParam {
     ];
 }
 
-/// Device actions triggered via advanced index/data writes
+/// Device actions triggered via advanced index/data writes — from Appendix C
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceAction {
-    Reboot,
-    ShuntCalOn,
-    ShuntCalOff,
-    Tare,
-    ResetTare,
-    ResetPeakTrough,
-    RestoreEepromDefaults,
+    Reboot,              // Index 189
+    ShuntCalOn,          // Index 192
+    ShuntCalOff,         // Index 193
+    Tare,                // Index 194
+    ResetTare,           // Index 195
+    ResetPeakTrough,     // Index 196
+    RestoreEepromDefaults, // Index 197
 }
 
 impl DeviceAction {
@@ -375,15 +407,16 @@ impl DeviceAction {
     }
 
     /// Returns (advanced_index, data_to_write)
+    /// Actions are write-only; data value doesn't matter but we send 1
     pub fn command(self) -> (u8, Vec<u8>) {
         match self {
-            Self::Reboot => (189, vec![1]),
-            Self::ShuntCalOn => (190, vec![1]),
-            Self::ShuntCalOff => (190, vec![0]),
-            Self::Tare => (191, vec![1]),
-            Self::ResetTare => (191, vec![0]),
-            Self::ResetPeakTrough => (192, vec![1]),
-            Self::RestoreEepromDefaults => (197, vec![1]),
+            Self::Reboot => (189, vec![0]),
+            Self::ShuntCalOn => (192, vec![0]),
+            Self::ShuntCalOff => (193, vec![0]),
+            Self::Tare => (194, vec![0]),
+            Self::ResetTare => (195, vec![0]),
+            Self::ResetPeakTrough => (196, vec![0]),
+            Self::RestoreEepromDefaults => (197, vec![0]),
         }
     }
 }

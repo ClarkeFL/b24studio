@@ -230,7 +230,32 @@ impl BleWorker {
                 return;
             }
         } else {
-            warn!("Configuration PIN characteristic not found, trying to proceed anyway");
+            // If the Config PIN characteristic doesn't exist, the device is not a valid B24
+            // or the PIN is wrong and the device is not exposing characteristics
+            let _ = self.evt_tx.send(BleEvent::Error(BleError::ConnectionFailed(
+                "Could not connect — check Configuration PIN is correct".to_string(),
+            )));
+            let _ = peripheral.disconnect().await;
+            return;
+        }
+
+        // Verify that B24 characteristics are accessible after PIN write.
+        // Re-discover services to pick up any newly-exposed characteristics.
+        if let Err(e) = peripheral.discover_services().await {
+            debug!("Re-discovery after PIN failed: {e}");
+        }
+        self.characteristics = peripheral.characteristics().into_iter().collect();
+
+        // Check for a key B24 characteristic (data_rate) to verify PIN was accepted
+        let verify_uuid = uuids::char_data_rate();
+        if self.find_characteristic(verify_uuid).is_none() {
+            warn!("B24 characteristics not accessible after PIN write — wrong PIN?");
+            let _ = self.evt_tx.send(BleEvent::Error(BleError::ConnectionFailed(
+                "Could not connect — check Configuration PIN is correct".to_string(),
+            )));
+            let _ = peripheral.disconnect().await;
+            self.characteristics.clear();
+            return;
         }
 
         // Subscribe to notifications for live data

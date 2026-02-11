@@ -15,7 +15,19 @@ pub struct B24App {
 }
 
 impl B24App {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Increase default font sizes globally
+        let mut style = (*cc.egui_ctx.style()).clone();
+        style.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
+        style.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(15.0));
+        style.text_styles.insert(egui::TextStyle::Monospace, egui::FontId::monospace(15.0));
+        style.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(22.0));
+        style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(12.0));
+        // Bigger spacing for inputs
+        style.spacing.interact_size.y = 30.0;
+        style.spacing.text_edit_width = 200.0;
+        cc.egui_ctx.set_style(style);
+
         let ble = crate::ble::manager::spawn_ble_worker();
         Self {
             state: AppState::default(),
@@ -76,27 +88,60 @@ impl B24App {
                     self.state.connection.phase = ConnectionPhase::Connected;
                     self.state.connection.error_message = None;
                     info!("Connected to device");
+                    // Auto-switch to Configuration tab
+                    self.state.ui.active_tab = Tab::Configuration;
+
+                    // Auto-read all config + calibration registers (with tracking)
+                    use crate::ble::commands::BleCommand;
+
+                    let cmd1 = BleCommand::ReadAll(uuids::all_config_uuids());
+                    self.state.track_send(&cmd1);
+                    self.ble.send(cmd1);
+
+                    let cmd2 = BleCommand::ReadAll(uuids::all_calibration_uuids());
+                    self.state.track_send(&cmd2);
+                    self.ble.send(cmd2);
+
+                    let cmd3 = BleCommand::ReadCharacteristic(uuids::char_data_units());
+                    self.state.track_send(&cmd3);
+                    self.ble.send(cmd3);
+
+                    // Auto-read all advanced params
+                    for param in crate::protocol::types::AdvancedParam::ALL {
+                        let cmd = BleCommand::ReadAdvanced { index: param.index() };
+                        self.state.track_send(&cmd);
+                        self.ble.send(cmd);
+                    }
                 }
                 BleEvent::Disconnected { reason } => {
                     self.state.connection.phase = ConnectionPhase::Disconnected;
+                    self.state.connection.show_pin_dialog = false;
+                    self.state.connection.pending_connect_id = None;
                     if let Some(r) = reason {
                         self.state.connection.error_message = Some(r);
                     }
+                    self.state.clear_pending();
+                    // Switch back to Connect tab so user can reconnect
+                    self.state.ui.active_tab = Tab::Connect;
                     info!("Disconnected");
                 }
                 BleEvent::CharacteristicRead { uuid, data } => {
+                    self.state.ui.pending_reads.remove(&uuid);
                     self.apply_characteristic_read(uuid, &data);
                 }
                 BleEvent::CharacteristicWritten { uuid } => {
+                    self.state.ui.pending_writes.remove(&uuid);
                     debug!("Written: {uuid}");
                 }
                 BleEvent::Notification { uuid, data } => {
                     self.apply_notification(uuid, &data);
                 }
                 BleEvent::AdvancedRead { index, data } => {
+                    self.state.ui.pending_adv_reads.remove(&index);
                     self.state.advanced.values.insert(index, data);
                 }
                 BleEvent::AdvancedWritten { index } => {
+                    self.state.ui.pending_adv_writes.remove(&index);
                     debug!("Advanced written: {index}");
                 }
                 BleEvent::ActionExecuted(action) => {
@@ -106,6 +151,19 @@ impl B24App {
                     let msg = e.to_string();
                     warn!("BLE error: {msg}");
                     self.state.connection.error_message = Some(msg);
+                    // If we were trying to connect or thought we were connected,
+                    // reset fully back to Disconnected so user can retry
+                    if self.state.connection.phase == ConnectionPhase::Connecting
+                        || self.state.connection.phase == ConnectionPhase::Connected
+                    {
+                        self.state.connection.phase = ConnectionPhase::Disconnected;
+                        self.state.connection.show_pin_dialog = false;
+                        self.state.connection.pending_connect_id = None;
+                        // Switch back to Connect tab
+                        self.state.ui.active_tab = Tab::Connect;
+                    }
+                    // Clear all pending to prevent stuck spinners
+                    self.state.clear_pending();
                 }
             }
         }
@@ -122,9 +180,11 @@ impl B24App {
         } else if uuid == uuids::char_battery_thresh() {
             self.state.config.battery_threshold = codec::decode_f32_be(data).ok();
         } else if uuid == uuids::char_view_pin() {
-            self.state.config.view_pin = codec::decode_u32_be(data).ok();
+            // View PIN is a 4-character ASCII string (e.g., "1234" or "0000")
+            self.state.config.view_pin = Some(codec::decode_string(data));
         } else if uuid == uuids::char_serial_number() {
-            self.state.config.serial_number = Some(codec::decode_string(data));
+            // Serial number is Uint32
+            self.state.config.serial_number = codec::decode_u32_be(data).ok();
         } else if uuid == uuids::char_data_tag() {
             // Data tag is u16, display as hex
             if let Ok(tag) = codec::decode_u16_be(data) {
@@ -235,14 +295,16 @@ impl eframe::App for B24App {
         // Process BLE events
         self.process_ble_events();
 
-        // Request repaint when connected (live data) or scanning (device discovery)
+        // Request repaint when connected, scanning, connecting, or pending BLE operations (spinners)
         if self.state.connection.phase == ConnectionPhase::Connected
             || self.state.connection.phase == ConnectionPhase::Scanning
+            || self.state.connection.phase == ConnectionPhase::Connecting
+            || self.state.has_pending()
         {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
-        // Top panel: tab bar
+        // Top panel: tab bar + disconnect button
         egui::TopBottomPanel::top("tab_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.state.ui.active_tab, Tab::Connect, "Connect");
@@ -258,6 +320,29 @@ impl eframe::App for B24App {
                 );
                 ui.selectable_value(&mut self.state.ui.active_tab, Tab::Live, "Live Data");
                 ui.selectable_value(&mut self.state.ui.active_tab, Tab::Log, "Log");
+
+                // Right-aligned disconnect button (visible when connected/connecting, but NOT on Connect tab)
+                let phase = self.state.connection.phase;
+                let on_connect_tab = self.state.ui.active_tab == Tab::Connect;
+                if !on_connect_tab && (phase == ConnectionPhase::Connected || phase == ConnectionPhase::Connecting) {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.add(
+                            egui::Button::new(
+                                egui::RichText::new("Disconnect").color(egui::Color32::WHITE)
+                            ).fill(egui::Color32::from_rgb(180, 50, 50))
+                        ).clicked() {
+                            self.ble.send(crate::ble::commands::BleCommand::Disconnect);
+                            self.state.connection.phase = ConnectionPhase::Disconnected;
+                            self.state.connection.show_pin_dialog = false;
+                            self.state.connection.pending_connect_id = None;
+                            self.state.clear_pending();
+                            self.state.ui.active_tab = Tab::Connect;
+                        }
+                        if phase == ConnectionPhase::Connecting {
+                            ui.spinner();
+                        }
+                    });
+                }
             });
         });
 
