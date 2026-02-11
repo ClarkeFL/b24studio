@@ -1,8 +1,10 @@
 [package]
 name = "b24-tool"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 description = "Mantracourt B24 BLE Telemetry Configuration & Calibration Tool"
+repository = "https://github.com/ClarkeFL/b24studio"
+build = "build.rs"
 
 [dependencies]
 # GUI
@@ -44,3 +46,14 @@ qrcode = { version = "0.14", default-features = false }
 
 # Futures for BLE stream
 futures = "0.3"
+
+# HTTP client for update checker
+ureq = "3"
+
+[build-dependencies]
+winresource = "0.1"
+
+[package.metadata.winresource]
+OriginalFilename = "b24-tool.exe"
+FileDescription = "B24 BLE Telemetry Configuration & Calibration Tool"
+ProductName = "B24 Tool"

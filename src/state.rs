@@ -237,6 +237,9 @@ pub struct UiState {
     pub pending_writes: HashSet<Uuid>,
     pub pending_adv_reads: HashSet<u8>,
     pub pending_adv_writes: HashSet<u8>,
+    /// Set by background update checker if a newer version exists on GitHub
+    pub update_available: Option<String>,
+    pub update_checked: bool,
 }
 
 impl Default for UiState {
@@ -253,6 +256,8 @@ impl Default for UiState {
             pending_writes: HashSet::new(),
             pending_adv_reads: HashSet::new(),
             pending_adv_writes: HashSet::new(),
+            update_available: None,
+            update_checked: false,
         }
     }
 }

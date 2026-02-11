@@ -68,5 +68,32 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
             ui.separator();
             ui.colored_label(widgets::COLOR_ERROR, err.as_str());
         }
+
+        // Right-aligned version + update info
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                    .size(12.0)
+                    .color(egui::Color32::GRAY),
+            );
+
+            if let Some(ref latest) = state.ui.update_available {
+                ui.separator();
+                let link = ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(format!("Update available: v{latest}"))
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(100, 180, 255)),
+                    )
+                    .sense(egui::Sense::click()),
+                );
+                if link.clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(
+                        "https://github.com/ClarkeFL/b24studio/releases/latest",
+                    ));
+                }
+                link.on_hover_text("Click to open download page");
+            }
+        });
     });
 }

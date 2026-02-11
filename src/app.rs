@@ -12,6 +12,7 @@ use crate::ui;
 pub struct B24App {
     state: AppState,
     ble: BleHandle,
+    update_rx: Option<std::sync::mpsc::Receiver<String>>,
 }
 
 impl B24App {
@@ -29,9 +30,29 @@ impl B24App {
         cc.egui_ctx.set_style(style);
 
         let ble = crate::ble::manager::spawn_ble_worker();
+
+        // Spawn background update checker
+        let (update_tx, update_rx) = std::sync::mpsc::channel();
+        let ctx_clone = cc.egui_ctx.clone();
+        std::thread::spawn(move || {
+            match check_latest_version() {
+                Ok(latest) => {
+                    let current = env!("CARGO_PKG_VERSION");
+                    if latest != current && latest.as_str() > current {
+                        let _ = update_tx.send(latest);
+                        ctx_clone.request_repaint();
+                    }
+                }
+                Err(e) => {
+                    info!("Update check skipped: {e}");
+                }
+            }
+        });
+
         Self {
             state: AppState::default(),
             ble,
+            update_rx: Some(update_rx),
         }
     }
 
@@ -493,6 +514,14 @@ impl B24App {
 
 impl eframe::App for B24App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Check for update result from background thread
+        if let Some(rx) = &self.update_rx {
+            if let Ok(version) = rx.try_recv() {
+                self.state.ui.update_available = Some(version);
+                self.update_rx = None; // Done, drop the receiver
+            }
+        }
+
         // Process BLE events
         self.process_ble_events();
 
@@ -568,4 +597,22 @@ impl eframe::App for B24App {
             }
         });
     }
+}
+
+/// Check GitHub for the latest release version. Runs on a background thread.
+fn check_latest_version() -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let body = ureq::get("https://api.github.com/repos/ClarkeFL/b24studio/releases/latest")
+        .header("User-Agent", "b24-tool")
+        .call()?
+        .into_body()
+        .read_to_string()?;
+    let resp: serde_json::Value = serde_json::from_str(&body)?;
+
+    let tag = resp["tag_name"]
+        .as_str()
+        .ok_or("no tag_name in response")?;
+
+    // Strip leading 'v' if present (e.g. "v1.2.0" -> "1.2.0")
+    let version = tag.strip_prefix('v').unwrap_or(tag);
+    Ok(version.to_string())
 }
