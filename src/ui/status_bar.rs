@@ -8,11 +8,15 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
 
     ui.horizontal(|ui| {
         // Connection status indicator
-        let (color, text) = match state.connection.phase {
-            ConnectionPhase::Disconnected => (widgets::COLOR_ERROR, "Disconnected"),
-            ConnectionPhase::Scanning => (widgets::COLOR_WARNING, "Scanning..."),
-            ConnectionPhase::Connecting => (widgets::COLOR_WARNING, "Connecting..."),
-            ConnectionPhase::Connected => (widgets::COLOR_SUCCESS, "Connected"),
+        let (color, text) = if state.ui.view_mode.active {
+            (widgets::COLOR_SUCCESS, "Viewing")
+        } else {
+            match state.connection.phase {
+                ConnectionPhase::Disconnected => (widgets::COLOR_ERROR, "Disconnected"),
+                ConnectionPhase::Scanning => (widgets::COLOR_WARNING, "Scanning..."),
+                ConnectionPhase::Connecting => (widgets::COLOR_WARNING, "Connecting..."),
+                ConnectionPhase::Connected => (widgets::COLOR_SUCCESS, "Connected"),
+            }
         };
 
         // Colored dot

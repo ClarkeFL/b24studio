@@ -428,6 +428,7 @@ pub struct ViewModeState {
     pub history: VecDeque<(f64, f32)>,
     pub start_time: Option<std::time::Instant>,
     pub last_update: Option<std::time::Instant>,
+    pub display_decimals: usize,
 }
 
 impl Default for ViewModeState {
@@ -446,6 +447,7 @@ impl Default for ViewModeState {
             history: VecDeque::new(),
             start_time: None,
             last_update: None,
+            display_decimals: 4,
         }
     }
 }

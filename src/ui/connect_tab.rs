@@ -454,12 +454,27 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
             }
         }
 
-        // Right-aligned Back button
+        // Right-aligned Back button + decimal places control
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.add_sized([100.0, 28.0], egui::Button::new(
                 egui::RichText::new("<< Back").size(15.0)
             )).clicked() {
                 exit_view_mode(state);
+            }
+
+            ui.separator();
+
+            // Decimal places +/- control
+            if ui.small_button("+").clicked() && state.ui.view_mode.display_decimals < 6 {
+                state.ui.view_mode.display_decimals += 1;
+            }
+            ui.label(
+                egui::RichText::new(format!("{} dp", state.ui.view_mode.display_decimals))
+                    .size(14.0)
+                    .monospace(),
+            );
+            if ui.small_button("−").clicked() && state.ui.view_mode.display_decimals > 0 {
+                state.ui.view_mode.display_decimals -= 1;
             }
         });
     });
@@ -470,8 +485,9 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
         // -- HUGE value display --
         ui.add_space(8.0);
 
+        let dp = state.ui.view_mode.display_decimals;
         let value_text = current_value
-            .map(|v| format!("{v:.4}"))
+            .map(|v| format!("{v:.dp$}"))
             .unwrap_or_else(|| "--".to_string());
 
         let units_text = current_units
@@ -492,23 +508,34 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
             widgets::bright_info(dark),
         );
         let total_w = value_galley.size().x + 12.0 + units_galley.size().x;
-        let value_h = value_galley.size().y;
-        let units_h = units_galley.size().y;
-        let row_h = value_h;
+        let row_h = value_galley.size().y;
         let avail_w = ui.available_width();
         let start_x = (avail_w - total_w) / 2.0;
+
+        // Use font baselines for proper alignment
+        let value_baseline = if !value_galley.rows.is_empty() {
+            value_galley.rows[0].rect.max.y
+        } else {
+            row_h
+        };
+        let units_baseline = if !units_galley.rows.is_empty() {
+            units_galley.rows[0].rect.max.y
+        } else {
+            units_galley.size().y
+        };
 
         let (rect, _) = ui.allocate_exact_size(
             egui::vec2(avail_w, row_h),
             egui::Sense::hover(),
         );
-        // Value: vertically centered
+        // Value: top-aligned at rect origin
         let value_pos = rect.min + egui::vec2(start_x, 0.0);
         ui.painter().galley(value_pos, value_galley, value_color);
-        // Units: bottom-aligned with value
+        // Units: baseline-aligned with value
+        let units_y = value_baseline - units_baseline;
         let units_pos = rect.min + egui::vec2(
             start_x + (total_w - units_galley.size().x),
-            row_h - units_h - 4.0,
+            units_y,
         );
         ui.painter().galley(units_pos, units_galley, widgets::bright_info(dark));
 
@@ -574,11 +601,11 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
             ui.horizontal(|ui| {
                 ui.label(format!("Points: {}", history_values.len()));
                 ui.separator();
-                ui.label(format!("Min: {min:.6}"));
+                ui.label(format!("Min: {min:.dp$}"));
                 ui.separator();
-                ui.label(format!("Max: {max:.6}"));
+                ui.label(format!("Max: {max:.dp$}"));
                 ui.separator();
-                ui.label(format!("Avg: {avg:.6}"));
+                ui.label(format!("Avg: {avg:.dp$}"));
 
                 ui.add_space(16.0);
 

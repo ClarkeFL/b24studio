@@ -24,8 +24,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, _ble: &BleHandle) {
     ui.separator();
 
     // Large current value display
+    let dp = state.ui.view_mode.display_decimals;
     let value_text = state.live_data.current_value
-        .map(|v| format!("{v:.6}"))
+        .map(|v| format!("{v:.dp$}"))
         .unwrap_or_else(|| "--".to_string());
 
     let units_text = state.calibration.cal_units
@@ -34,11 +35,19 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, _ble: &BleHandle) {
         .unwrap_or_default();
 
     ui.horizontal(|ui| {
-        ui.heading(
-            egui::RichText::new(format!("{value_text}  {units_text}"))
-                .size(32.0)
-                .monospace(),
-        );
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
+            ui.label(
+                egui::RichText::new(&value_text)
+                    .size(32.0)
+                    .monospace(),
+            );
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new(&units_text)
+                    .size(16.0)
+                    .color(widgets::bright_info(ui.visuals().dark_mode)),
+            );
+        });
     });
 
     ui.add_space(8.0);
@@ -100,11 +109,11 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, _ble: &BleHandle) {
         ui.horizontal(|ui| {
             ui.label(format!("Points: {}", values.len()));
             ui.separator();
-            ui.label(format!("Min: {min:.6}"));
+            ui.label(format!("Min: {min:.dp$}"));
             ui.separator();
-            ui.label(format!("Max: {max:.6}"));
+            ui.label(format!("Max: {max:.dp$}"));
             ui.separator();
-            ui.label(format!("Avg: {avg:.6}"));
+            ui.label(format!("Avg: {avg:.dp$}"));
         });
 
         if ui.button("Clear History").clicked() {
