@@ -22,6 +22,53 @@ pub const COLOR_ERROR: egui::Color32 = egui::Color32::from_rgb(255, 100, 100);
 pub const COLOR_WARNING: egui::Color32 = egui::Color32::from_rgb(255, 180, 80);
 pub const COLOR_SUCCESS: egui::Color32 = egui::Color32::from_rgb(80, 200, 80);
 
+// ── Theme-aware colors ──────────────────────────────────────────
+
+pub fn section_header_color(dark: bool) -> egui::Color32 {
+    if dark { egui::Color32::from_rgb(130, 170, 220) }
+    else    { egui::Color32::from_rgb(40, 90, 160) }
+}
+
+pub fn link_color(dark: bool) -> egui::Color32 {
+    if dark { egui::Color32::from_rgb(100, 180, 255) }
+    else    { egui::Color32::from_rgb(0, 100, 200) }
+}
+
+pub fn help_icon_color(dark: bool) -> egui::Color32 {
+    if dark { egui::Color32::from_rgb(120, 160, 210) }
+    else    { egui::Color32::from_rgb(60, 110, 170) }
+}
+
+pub fn subtle_bg(dark: bool) -> egui::Color32 {
+    if dark { egui::Color32::from_rgb(35, 40, 55) }
+    else    { egui::Color32::from_rgb(235, 238, 242) }
+}
+
+pub fn subtle_bg_selected(dark: bool) -> egui::Color32 {
+    if dark { egui::Color32::from_rgb(40, 55, 80) }
+    else    { egui::Color32::from_rgb(215, 228, 245) }
+}
+
+pub fn subtle_border(dark: bool) -> egui::Color32 {
+    if dark { egui::Color32::from_rgb(80, 140, 220) }
+    else    { egui::Color32::from_rgb(100, 140, 200) }
+}
+
+pub fn subtle_border_dim(dark: bool) -> egui::Color32 {
+    if dark { egui::Color32::from_rgb(60, 60, 70) }
+    else    { egui::Color32::from_rgb(190, 195, 205) }
+}
+
+pub fn muted_text(dark: bool) -> egui::Color32 {
+    if dark { egui::Color32::from_rgb(140, 140, 140) }
+    else    { egui::Color32::from_rgb(100, 100, 100) }
+}
+
+pub fn bright_info(dark: bool) -> egui::Color32 {
+    if dark { egui::Color32::from_rgb(160, 200, 255) }
+    else    { egui::Color32::from_rgb(20, 80, 170) }
+}
+
 /// Consistent page title: 22pt bold
 pub fn page_header(ui: &mut egui::Ui, title: &str) {
     ui.label(egui::RichText::new(title).size(PAGE_HEADER_SIZE).strong());
@@ -29,12 +76,13 @@ pub fn page_header(ui: &mut egui::Ui, title: &str) {
 
 /// Consistent section header: 17pt bold blue, with separator
 pub fn section_header(ui: &mut egui::Ui, title: &str) {
+    let dark = ui.visuals().dark_mode;
     ui.add_space(4.0);
     ui.label(
         egui::RichText::new(title)
             .size(SECTION_HEADER_SIZE)
             .strong()
-            .color(SECTION_HEADER_COLOR),
+            .color(section_header_color(dark)),
     );
     ui.separator();
     ui.add_space(4.0);
@@ -43,9 +91,10 @@ pub fn section_header(ui: &mut egui::Ui, title: &str) {
 /// Standalone help icon that reliably shows a tooltip on hover.
 /// Renders as a small "(?)" badge with guaranteed minimum interaction area.
 pub fn help_icon(ui: &mut egui::Ui, tooltip: &str) {
+    let dark = ui.visuals().dark_mode;
     let icon = egui::RichText::new("(?)")
         .size(13.0)
-        .color(egui::Color32::from_rgb(120, 160, 210));
+        .color(help_icon_color(dark));
     let resp = ui.add_sized(
         [24.0, 20.0],
         egui::Label::new(icon).sense(egui::Sense::hover()),
@@ -80,7 +129,7 @@ pub fn register_row_f32(
         let display = current.map_or("--".to_string(), |v| format!("{v}"));
         ui.monospace(format!("{display:<14}"));
         if !read_only {
-            ui.add(egui::TextEdit::singleline(edit_buf).desired_width(100.0));
+            ui.add(egui::TextEdit::singleline(edit_buf).desired_width(100.0).vertical_align(egui::Align::Center));
         }
         if ui.button("Read").clicked() {
             ble.send(BleCommand::ReadCharacteristic(uuid_fn()));
@@ -112,7 +161,7 @@ pub fn register_row_u32(
         let display = current.map_or("--".to_string(), |v| format!("{v}"));
         ui.monospace(format!("{display:<14}"));
         if !read_only {
-            ui.add(egui::TextEdit::singleline(edit_buf).desired_width(100.0));
+            ui.add(egui::TextEdit::singleline(edit_buf).desired_width(100.0).vertical_align(egui::Align::Center));
         }
         if ui.button("Read").clicked() {
             ble.send(BleCommand::ReadCharacteristic(uuid_fn()));
@@ -144,7 +193,7 @@ pub fn register_row_u8(
         let display = current.map_or("--".to_string(), |v| format!("{v}"));
         ui.monospace(format!("{display:<14}"));
         if !read_only {
-            ui.add(egui::TextEdit::singleline(edit_buf).desired_width(100.0));
+            ui.add(egui::TextEdit::singleline(edit_buf).desired_width(100.0).vertical_align(egui::Align::Center));
         }
         if ui.button("Read").clicked() {
             ble.send(BleCommand::ReadCharacteristic(uuid_fn()));
@@ -176,7 +225,7 @@ pub fn register_row_string(
         let display = current.unwrap_or("--");
         ui.monospace(format!("{display:<14}"));
         if !read_only {
-            ui.add(egui::TextEdit::singleline(edit_buf).desired_width(100.0));
+            ui.add(egui::TextEdit::singleline(edit_buf).desired_width(100.0).vertical_align(egui::Align::Center));
         }
         if ui.button("Read").clicked() {
             ble.send(BleCommand::ReadCharacteristic(uuid_fn()));

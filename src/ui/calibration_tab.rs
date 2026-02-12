@@ -71,52 +71,58 @@ fn show_auto_cal(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.add_space(8.0);
 
-        // Live value banner
+        // Live value banner (full width)
         show_live_value_banner(ui, state);
 
         ui.add_space(8.0);
-        widgets::section_header(ui, "Calibration Points");
 
-        ui.label(
-            egui::RichText::new(
-                "Enter target engineering values, then capture the raw mV/V at each load.\n\
-                 Points can be captured in any order. Re-capture any point by clicking Capture again."
-            ).size(14.0)
-        );
-        ui.add_space(8.0);
+        // Two-column layout: left = points + actions, right = preview
+        ui.columns(2, |cols| {
+            // LEFT: Calibration Points
+            widgets::section_header(&mut cols[0], "Calibration Points");
 
-        // Points table
-        show_points_table(ui, state, ble);
-
-        // Preview segments (only if all points captured)
-        show_preview(ui, state);
-
-        // Action buttons
-        show_action_buttons(ui, state, ble);
-
-        // Status messages
-        if state.ui.auto_cal.phase == AutoCalPhase::Applied {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new("Calibration written to device and Calculate Coefficients triggered.")
-                    .size(15.0)
-                    .color(widgets::COLOR_SUCCESS)
+            cols[0].label(
+                egui::RichText::new(
+                    "Enter target values, then capture raw mV/V at each load.\n\
+                     Re-capture any point by clicking Capture again."
+                ).size(14.0)
             );
-        }
+            cols[0].add_space(8.0);
 
-        if let Some(err) = &state.ui.auto_cal.error {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(err)
-                    .color(widgets::COLOR_ERROR)
-            );
-        }
+            // Points table
+            show_points_table(&mut cols[0], state, ble);
+
+            // Action buttons
+            show_action_buttons(&mut cols[0], state, ble);
+
+            // Status messages
+            if state.ui.auto_cal.phase == AutoCalPhase::Applied {
+                cols[0].add_space(8.0);
+                cols[0].label(
+                    egui::RichText::new("Calibration written to device and Calculate Coefficients triggered.")
+                        .size(15.0)
+                        .color(widgets::COLOR_SUCCESS)
+                );
+            }
+
+            if let Some(err) = &state.ui.auto_cal.error {
+                cols[0].add_space(8.0);
+                cols[0].label(
+                    egui::RichText::new(err)
+                        .color(widgets::COLOR_ERROR)
+                );
+            }
+
+            // RIGHT: Preview segments
+            show_preview(&mut cols[1], state);
+        });
     });
 }
 
 fn show_live_value_banner(ui: &mut egui::Ui, state: &AppState) {
+    let dark = ui.visuals().dark_mode;
     egui::Frame::none()
-        .fill(egui::Color32::from_rgb(30, 35, 45))
+        .fill(widgets::subtle_bg(dark))
         .rounding(egui::Rounding::same(6.0))
         .inner_margin(egui::Margin::same(10.0))
         .show(ui, |ui| {
@@ -125,7 +131,8 @@ fn show_live_value_banner(ui: &mut egui::Ui, state: &AppState) {
                 let cal_value = state.live_data.current_value
                     .map(|v| format!("{v:.4}"))
                     .unwrap_or_else(|| "--".to_string());
-                let units = state.live_data.current_units
+                let units = state.calibration.cal_units
+                    .or(state.live_data.current_units)
                     .map(|u| DataUnits::from_byte(u).label().to_string())
                     .unwrap_or_default();
 
@@ -141,9 +148,9 @@ fn show_live_value_banner(ui: &mut egui::Ui, state: &AppState) {
                     .map(|v| format!("{v:.6}"))
                     .unwrap_or_else(|| "--".to_string());
                 ui.label(egui::RichText::new("Raw mV/V:").size(14.0)
-                    .color(egui::Color32::GRAY));
+                    .color(widgets::muted_text(dark)));
                 ui.label(egui::RichText::new(raw).size(14.0).monospace()
-                    .color(egui::Color32::GRAY));
+                    .color(widgets::muted_text(dark)));
             });
         });
 }
@@ -183,6 +190,7 @@ fn show_points_table(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                 let changed = ui.add_sized([120.0, 28.0],
                     egui::TextEdit::singleline(&mut point.target_value)
                         .hint_text(if i == 0 { "0.0" } else { "e.g. 100.0" })
+                        .vertical_align(egui::Align::Center)
                 ).changed();
                 if changed {
                     // Reset applied state when values change
@@ -206,8 +214,9 @@ fn show_points_table(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                 }
 
                 // Status
+                let dark = ui.visuals().dark_mode;
                 let (status_text, status_color) = match point.capture_status {
-                    CaptureStatus::NotCaptured => ("Not captured", egui::Color32::GRAY),
+                    CaptureStatus::NotCaptured => ("Not captured", widgets::muted_text(dark)),
                     CaptureStatus::Capturing => ("Capturing...", widgets::COLOR_WARNING),
                     CaptureStatus::Captured => ("Captured", widgets::COLOR_SUCCESS),
                 };
@@ -216,7 +225,7 @@ fn show_points_table(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                 // Capture button
                 ui.add_enabled_ui(!any_capturing, |ui| {
                     if ui.add_sized([80.0, 28.0], egui::Button::new(
-                        egui::RichText::new("Capture").size(14.0)
+                        egui::RichText::new("Capture").size(14.0).color(egui::Color32::WHITE)
                     ).fill(egui::Color32::from_rgb(50, 100, 180))).clicked() {
                         capture_idx = Some(i);
                     }
@@ -263,9 +272,10 @@ fn show_points_table(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
             }
         }
         ui.add_space(8.0);
+        let dark = ui.visuals().dark_mode;
         ui.label(
             egui::RichText::new(format!("{} / 16 points", point_count))
-                .size(13.0).color(egui::Color32::GRAY)
+                .size(13.0).color(widgets::muted_text(dark))
         );
     });
     if remove_last {
@@ -360,7 +370,7 @@ fn show_action_buttons(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle)
 
         ui.add_enabled_ui(can_apply, |ui| {
             if ui.add_sized([220.0, 36.0], egui::Button::new(
-                egui::RichText::new(btn_text).size(16.0)
+                egui::RichText::new(btn_text).size(16.0).color(egui::Color32::WHITE)
             ).fill(widgets::COLOR_BTN_GREEN)).clicked() {
                 apply_auto_calibration(state, ble);
             }
@@ -376,8 +386,9 @@ fn show_action_buttons(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle)
         if !can_apply && enough_points {
             ui.add_space(8.0);
             if !all_captured {
+                let dark = ui.visuals().dark_mode;
                 ui.label(egui::RichText::new("Capture all points first")
-                    .size(13.0).color(egui::Color32::GRAY));
+                    .size(13.0).color(widgets::muted_text(dark)));
             } else if !all_valid_targets {
                 ui.label(egui::RichText::new("All target values must be valid numbers")
                     .size(13.0).color(widgets::COLOR_WARNING));
@@ -744,84 +755,12 @@ fn show_table_cal(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.add_space(8.0);
 
-        // Live value banner
+        // Live value banner (full width)
         show_live_value_banner(ui, state);
 
         ui.add_space(8.0);
-        widgets::section_header(ui, "Table Calibration");
 
-        ui.label(
-            egui::RichText::new(
-                "Enter mV/V and engineering values from the sensor datasheet or calibration certificate.\n\
-                 The tool will compute linearisation coefficients and write them to the device.\n\
-                 Minimum 2 rows required (e.g. zero + full scale). Rows must be in ascending mV/V order.\n\n\
-                 Tip: The mV/V values come from the sensor's calibration certificate. For example, a 100kg\n\
-                 load cell with 2 mV/V sensitivity would have 0 mV/V at zero load and 2 mV/V at 100 kg."
-            ).size(14.0)
-        );
-        ui.add_space(12.0);
-
-        // Editable table
-        let mut remove_idx = None;
-        let row_count = state.ui.table_cal.rows.len();
-        egui::Grid::new("table_cal_grid")
-            .num_columns(4)
-            .spacing([12.0, 6.0])
-            .min_col_width(40.0)
-            .show(ui, |ui| {
-                ui.strong("Point");
-                ui.horizontal(|ui| {
-                    ui.strong("mV/V (raw)");
-                    widgets::help_icon(ui, "Raw sensor signal in millivolts per volt.\nTypically from the sensor datasheet or\ncaptured using Auto Calibration.");
-                });
-                ui.horizontal(|ui| {
-                    ui.strong("Engineering Value");
-                    widgets::help_icon(ui, "The desired output value in engineering units\n(e.g. kg, N m, lbf) at this mV/V point.");
-                });
-                ui.strong("");
-                ui.end_row();
-
-                for (i, row) in state.ui.table_cal.rows.iter_mut().enumerate() {
-                    ui.label(egui::RichText::new(format!("{}", i + 1)).size(15.0));
-                    ui.add_sized([140.0, 28.0],
-                        egui::TextEdit::singleline(&mut row.mv_per_v)
-                            .hint_text("e.g. 0.0")
-                    );
-                    ui.add_sized([140.0, 28.0],
-                        egui::TextEdit::singleline(&mut row.eng_value)
-                            .hint_text("e.g. 0.0")
-                    );
-                    if row_count > 2 {
-                        if ui.small_button("X").clicked() {
-                            remove_idx = Some(i);
-                        }
-                    } else {
-                        ui.label("");
-                    }
-                    ui.end_row();
-                }
-            });
-
-        if let Some(idx) = remove_idx {
-            state.ui.table_cal.rows.remove(idx);
-        }
-
-        ui.add_space(8.0);
-
-        ui.horizontal(|ui| {
-            if ui.button("+ Add Row").clicked() && state.ui.table_cal.rows.len() < 16 {
-                state.ui.table_cal.rows.push(TableCalRow::default());
-            }
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(format!("{} / 16 points", state.ui.table_cal.rows.len()))
-                    .size(13.0).color(egui::Color32::GRAY)
-            );
-        });
-
-        ui.add_space(16.0);
-
-        // Validate and show preview
+        // Pre-compute preview data before splitting columns (to avoid borrow issues)
         let parsed: Vec<Option<(f32, f32)>> = state.ui.table_cal.rows.iter().map(|r| {
             let mv: Option<f32> = r.mv_per_v.parse().ok();
             let eng: Option<f32> = r.eng_value.parse().ok();
@@ -830,96 +769,177 @@ fn show_table_cal(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
 
         let all_valid = parsed.iter().all(|p| p.is_some()) && parsed.len() >= 2;
         let points: Vec<(f32, f32)> = parsed.iter().filter_map(|p| *p).collect();
-
-        // Check ascending mV/V order
         let ascending = points.windows(2).all(|w| w[1].0 > w[0].0);
 
-        if all_valid && !ascending {
-            ui.label(
-                egui::RichText::new("mV/V values must be in strictly ascending order.")
-                    .color(widgets::COLOR_ERROR)
-            );
-        }
-
-        // Preview computed segments
-        if all_valid && ascending && points.len() >= 2 {
-            let segments: Vec<(f32, f32, f32, f32)> = points.windows(2).map(|w| {
+        let segments: Vec<(f32, f32, f32, f32)> = if all_valid && ascending && points.len() >= 2 {
+            points.windows(2).map(|w| {
                 let (low_mv, low_eng) = w[0];
                 let (high_mv, high_eng) = w[1];
                 let (gain, offset) = calibration::two_point_calibration(
                     low_mv, high_mv, low_eng, high_eng
                 ).unwrap_or((1.0, 0.0));
                 (low_mv, gain, offset, high_mv)
-            }).collect();
+            }).collect()
+        } else {
+            Vec::new()
+        };
 
-            ui.add_space(4.0);
-            widgets::section_header(ui, "Preview");
+        let has_any_input = state.ui.table_cal.rows.iter().any(|r| !r.mv_per_v.is_empty() || !r.eng_value.is_empty());
 
-            egui::Grid::new("table_cal_preview")
-                .num_columns(5)
-                .spacing([16.0, 4.0])
-                .striped(true)
-                .min_col_width(80.0)
-                .show(ui, |ui| {
-                    ui.strong("Segment");
-                    ui.strong("Valid From");
-                    ui.strong("Gain");
-                    ui.strong("Offset");
-                    ui.strong("Valid To");
+        // Two-column layout: left = input table, right = preview
+        ui.columns(2, |cols| {
+            // LEFT: Input table
+            widgets::section_header(&mut cols[0], "Table Calibration");
+
+            cols[0].label(
+                egui::RichText::new(
+                    "Enter mV/V and engineering values from the sensor's\n\
+                     calibration certificate. Minimum 2 rows required.\n\
+                     Rows must be in ascending mV/V order."
+                ).size(14.0)
+            );
+            cols[0].add_space(12.0);
+
+            // Editable table
+            let mut remove_idx = None;
+            let row_count = state.ui.table_cal.rows.len();
+            egui::Grid::new("table_cal_grid")
+                .num_columns(4)
+                .spacing([12.0, 6.0])
+                .min_col_width(40.0)
+                .show(&mut cols[0], |ui| {
+                    ui.strong("Point");
+                    ui.horizontal(|ui| {
+                        ui.strong("mV/V (raw)");
+                        widgets::help_icon(ui, "Raw sensor signal in millivolts per volt.\nTypically from the sensor datasheet or\ncaptured using Auto Calibration.");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.strong("Engineering Value");
+                        widgets::help_icon(ui, "The desired output value in engineering units\n(e.g. kg, N m, lbf) at this mV/V point.");
+                    });
+                    ui.strong("");
                     ui.end_row();
 
-                    for (i, (vf, g, o, vt)) in segments.iter().enumerate() {
-                        ui.label(format!("{}", i + 1));
-                        ui.monospace(format!("{vf:.6}"));
-                        ui.monospace(format!("{g:.6}"));
-                        ui.monospace(format!("{o:.6}"));
-                        ui.monospace(format!("{vt:.6}"));
+                    for (i, row) in state.ui.table_cal.rows.iter_mut().enumerate() {
+                        ui.label(egui::RichText::new(format!("{}", i + 1)).size(15.0));
+                        ui.add_sized([140.0, 28.0],
+                            egui::TextEdit::singleline(&mut row.mv_per_v)
+                                .hint_text("e.g. 0.0")
+                                .vertical_align(egui::Align::Center)
+                        );
+                        ui.add_sized([140.0, 28.0],
+                            egui::TextEdit::singleline(&mut row.eng_value)
+                                .hint_text("e.g. 0.0")
+                                .vertical_align(egui::Align::Center)
+                        );
+                        if row_count > 2 {
+                            if ui.small_button("X").clicked() {
+                                remove_idx = Some(i);
+                            }
+                        } else {
+                            ui.label("");
+                        }
                         ui.end_row();
                     }
                 });
 
-            ui.add_space(16.0);
+            if let Some(idx) = remove_idx {
+                state.ui.table_cal.rows.remove(idx);
+            }
 
-            ui.horizontal(|ui| {
-                if ui.add_sized([220.0, 36.0], egui::Button::new(
-                    egui::RichText::new("Apply to Device").size(16.0)
-                ).fill(widgets::COLOR_BTN_GREEN)).clicked() {
-                    apply_table_calibration(state, ble, &points);
-                }
+            cols[0].add_space(8.0);
 
-                if ui.add_sized([100.0, 36.0], egui::Button::new("Clear")).clicked() {
-                    state.ui.table_cal.rows = vec![TableCalRow::default(), TableCalRow::default()];
-                    state.ui.table_cal.applied = false;
-                    state.ui.table_cal.error = None;
+            cols[0].horizontal(|ui| {
+                if ui.button("+ Add Row").clicked() && state.ui.table_cal.rows.len() < 16 {
+                    state.ui.table_cal.rows.push(TableCalRow::default());
                 }
+                ui.add_space(8.0);
+                let dark = ui.visuals().dark_mode;
+                ui.label(
+                    egui::RichText::new(format!("{} / 16 points", state.ui.table_cal.rows.len()))
+                        .size(13.0).color(widgets::muted_text(dark))
+                );
             });
-        }
 
-        if !all_valid && state.ui.table_cal.rows.iter().any(|r| !r.mv_per_v.is_empty() || !r.eng_value.is_empty()) {
-            ui.label(
-                egui::RichText::new("Fill in all mV/V and engineering values (valid numbers required).")
-                    .color(widgets::COLOR_WARNING)
-            );
-        }
+            if all_valid && !ascending {
+                cols[0].add_space(4.0);
+                cols[0].label(
+                    egui::RichText::new("mV/V values must be in strictly ascending order.")
+                        .color(widgets::COLOR_ERROR)
+                );
+            }
 
-        // Show success message
-        if state.ui.table_cal.applied {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new("Calibration written to device and Calculate Coefficients triggered.")
-                    .size(15.0)
-                    .color(widgets::COLOR_SUCCESS)
-            );
-        }
+            if !all_valid && has_any_input {
+                cols[0].add_space(4.0);
+                cols[0].label(
+                    egui::RichText::new("Fill in all mV/V and engineering values (valid numbers required).")
+                        .color(widgets::COLOR_WARNING)
+                );
+            }
 
-        // Show error
-        if let Some(err) = &state.ui.table_cal.error {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(err)
-                    .color(widgets::COLOR_ERROR)
-            );
-        }
+            // Show success message
+            if state.ui.table_cal.applied {
+                cols[0].add_space(8.0);
+                cols[0].label(
+                    egui::RichText::new("Calibration written to device and Calculate Coefficients triggered.")
+                        .size(15.0)
+                        .color(widgets::COLOR_SUCCESS)
+                );
+            }
+
+            // Show error
+            if let Some(err) = &state.ui.table_cal.error.clone() {
+                cols[0].add_space(8.0);
+                cols[0].label(
+                    egui::RichText::new(err)
+                        .color(widgets::COLOR_ERROR)
+                );
+            }
+
+            // RIGHT: Preview + Apply
+            if !segments.is_empty() {
+                widgets::section_header(&mut cols[1], "Preview");
+
+                egui::Grid::new("table_cal_preview")
+                    .num_columns(5)
+                    .spacing([16.0, 4.0])
+                    .striped(true)
+                    .min_col_width(80.0)
+                    .show(&mut cols[1], |ui| {
+                        ui.strong("Segment");
+                        ui.strong("Valid From");
+                        ui.strong("Gain");
+                        ui.strong("Offset");
+                        ui.strong("Valid To");
+                        ui.end_row();
+
+                        for (i, (vf, g, o, vt)) in segments.iter().enumerate() {
+                            ui.label(format!("{}", i + 1));
+                            ui.monospace(format!("{vf:.6}"));
+                            ui.monospace(format!("{g:.6}"));
+                            ui.monospace(format!("{o:.6}"));
+                            ui.monospace(format!("{vt:.6}"));
+                            ui.end_row();
+                        }
+                    });
+
+                cols[1].add_space(16.0);
+
+                cols[1].horizontal(|ui| {
+                    if ui.add_sized([220.0, 36.0], egui::Button::new(
+                        egui::RichText::new("Apply to Device").size(16.0).color(egui::Color32::WHITE)
+                    ).fill(widgets::COLOR_BTN_GREEN)).clicked() {
+                        apply_table_calibration(state, ble, &points);
+                    }
+
+                    if ui.add_sized([100.0, 36.0], egui::Button::new("Clear")).clicked() {
+                        state.ui.table_cal.rows = vec![TableCalRow::default(), TableCalRow::default()];
+                        state.ui.table_cal.applied = false;
+                        state.ui.table_cal.error = None;
+                    }
+                });
+            }
+        });
     });
 }
 
@@ -1079,9 +1099,10 @@ fn show_advanced(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
             // LEFT: Advanced Parameters
             widgets::section_header(&mut cols[0], "Advanced Parameters");
 
+            let dark = cols[0].visuals().dark_mode;
             cols[0].label(
                 egui::RichText::new("Hover over parameter names for descriptions.")
-                    .size(13.0).color(egui::Color32::GRAY)
+                    .size(13.0).color(widgets::muted_text(dark))
             );
             cols[0].add_space(4.0);
 
@@ -1124,7 +1145,7 @@ fn show_advanced(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                         if is_readonly {
                             ui.label("");
                         } else {
-                            ui.add_sized([100.0, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.adv_data));
+                            ui.add_sized([100.0, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.adv_data).vertical_align(egui::Align::Center));
                         }
 
                         ui.horizontal(|ui| {

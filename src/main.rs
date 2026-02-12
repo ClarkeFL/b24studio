@@ -19,6 +19,7 @@ fn main() {
         .expect("Failed to load app icon");
 
     let options = eframe::NativeOptions {
+        centered: true,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
             .with_title(format!("B24 Tool v{VERSION}"))

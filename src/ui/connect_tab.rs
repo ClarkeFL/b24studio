@@ -81,11 +81,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
         ui.separator();
         ui.add_space(8.0);
 
+        let dark = ui.visuals().dark_mode;
         let frame = egui::Frame::none()
             .inner_margin(16.0)
             .rounding(8.0)
-            .fill(egui::Color32::from_rgb(35, 40, 55))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 140, 220)));
+            .fill(widgets::subtle_bg(dark))
+            .stroke(egui::Stroke::new(1.0, widgets::subtle_border(dark)));
 
         frame.show(ui, |ui| {
             ui.heading("Enter Configuration PIN");
@@ -100,7 +101,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                     egui::TextEdit::singleline(&mut state.connection.config_pin)
                         .desired_width(120.0)
                         .hint_text("0")
-                        .font(egui::TextStyle::Monospace),
+                        .font(egui::TextStyle::Monospace)
+                        .vertical_align(egui::Align::Center),
                 );
                 response.request_focus();
 
@@ -128,11 +130,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
         ui.separator();
         ui.add_space(8.0);
 
+        let dark = ui.visuals().dark_mode;
         let frame = egui::Frame::none()
             .inner_margin(16.0)
             .rounding(8.0)
-            .fill(egui::Color32::from_rgb(35, 45, 40))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 180, 120)));
+            .fill(widgets::subtle_bg(dark))
+            .stroke(egui::Stroke::new(1.0, widgets::subtle_border(dark)));
 
         frame.show(ui, |ui| {
             ui.heading("Enter View PIN");
@@ -147,7 +150,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                     egui::TextEdit::singleline(&mut state.ui.view_mode.view_pin)
                         .desired_width(120.0)
                         .hint_text("0000")
-                        .font(egui::TextStyle::Monospace),
+                        .font(egui::TextStyle::Monospace)
+                        .vertical_align(egui::Align::Center),
                 );
                 response.request_focus();
 
@@ -206,13 +210,14 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
     if b24_devices.is_empty() {
         ui.add_space(40.0);
         ui.vertical_centered(|ui| {
+            let dark = ui.visuals().dark_mode;
             if is_scanning {
                 ui.spinner();
                 ui.add_space(8.0);
                 ui.label(
                     egui::RichText::new("Scanning for B24 devices...")
                         .size(16.0)
-                        .color(egui::Color32::from_rgb(180, 180, 180)),
+                        .color(widgets::muted_text(dark)),
                 );
                 let total = state.connection.scanned_devices.len();
                 if total > 0 {
@@ -222,14 +227,14 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                             "Found {total} BLE device(s), none identified as B24 yet"
                         ))
                         .size(12.0)
-                        .color(egui::Color32::from_rgb(140, 140, 140)),
+                        .color(widgets::muted_text(dark)),
                     );
                 }
             } else {
                 ui.label(
                     egui::RichText::new("No B24 devices found")
                         .size(16.0)
-                        .color(egui::Color32::from_rgb(180, 180, 180)),
+                        .color(widgets::muted_text(dark)),
                 );
                 ui.add_space(8.0);
                 ui.label("Click 'Start Scan' to discover nearby B24 modules.");
@@ -245,20 +250,21 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                 let device = &state.connection.scanned_devices[idx];
                 let is_selected = state.connection.selected_device_index == Some(idx);
 
+                let dark = ui.visuals().dark_mode;
                 let frame = egui::Frame::none()
                     .inner_margin(12.0)
                     .rounding(6.0)
                     .fill(if is_selected {
-                        egui::Color32::from_rgb(40, 55, 80)
+                        widgets::subtle_bg_selected(dark)
                     } else {
-                        egui::Color32::from_rgb(35, 35, 40)
+                        widgets::subtle_bg(dark)
                     })
                     .stroke(egui::Stroke::new(
                         1.0,
                         if is_selected {
-                            egui::Color32::from_rgb(80, 140, 220)
+                            widgets::subtle_border(dark)
                         } else {
-                            egui::Color32::from_rgb(60, 60, 70)
+                            widgets::subtle_border_dim(dark)
                         },
                     ));
 
@@ -297,7 +303,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                                             .unwrap_or_default();
                                         ui.label(
                                             egui::RichText::new(format!("{val:.6} {units_str}"))
-                                                .color(egui::Color32::from_rgb(120, 200, 255)),
+                                                .color(widgets::bright_info(dark)),
                                         );
                                     }
                                 }
@@ -306,7 +312,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                                 ui.label(
                                     egui::RichText::new(device.peripheral_id.to_uppercase())
                                         .size(11.0)
-                                        .color(egui::Color32::from_rgb(120, 120, 130)),
+                                        .color(widgets::muted_text(dark)),
                                 );
                             });
                         });
@@ -384,7 +390,8 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
     let (current_value, current_units, current_status) = if is_connected_view {
         (
             state.live_data.current_value,
-            state.live_data.current_units,
+            // Prefer cal_units (what user configured) over data_units notification
+            state.calibration.cal_units.or(state.live_data.current_units),
             state.live_data.current_status,
         )
     } else {
@@ -472,15 +479,17 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
             .unwrap_or_default();
 
         // Measure text sizes to center value+units as a group
+        let dark = ui.visuals().dark_mode;
+        let value_color = if dark { egui::Color32::WHITE } else { egui::Color32::BLACK };
         let value_galley = ui.painter().layout_no_wrap(
             value_text.clone(),
             egui::FontId::monospace(140.0),
-            egui::Color32::WHITE,
+            value_color,
         );
         let units_galley = ui.painter().layout_no_wrap(
             units_text.clone(),
             egui::FontId::proportional(28.0),
-            egui::Color32::from_rgb(160, 200, 255),
+            widgets::bright_info(dark),
         );
         let total_w = value_galley.size().x + 12.0 + units_galley.size().x;
         let value_h = value_galley.size().y;
@@ -495,13 +504,13 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
         );
         // Value: vertically centered
         let value_pos = rect.min + egui::vec2(start_x, 0.0);
-        ui.painter().galley(value_pos, value_galley, egui::Color32::WHITE);
+        ui.painter().galley(value_pos, value_galley, value_color);
         // Units: bottom-aligned with value
         let units_pos = rect.min + egui::vec2(
             start_x + (total_w - units_galley.size().x),
             row_h - units_h - 4.0,
         );
-        ui.painter().galley(units_pos, units_galley, egui::Color32::from_rgb(160, 200, 255));
+        ui.painter().galley(units_pos, units_galley, widgets::bright_info(dark));
 
         ui.add_space(4.0);
 
@@ -584,19 +593,21 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
                 }
             });
         } else if !is_connected_view {
+            let dark = ui.visuals().dark_mode;
             ui.label(
                 egui::RichText::new("Waiting for advertising data...")
                     .size(14.0)
-                    .color(egui::Color32::from_rgb(140, 140, 140)),
+                    .color(widgets::muted_text(dark)),
             );
         }
 
         if !is_connected_view {
             ui.add_space(4.0);
+            let dark = ui.visuals().dark_mode;
             ui.label(
                 egui::RichText::new("Update rate depends on the device's Data Rate setting (connect to change)")
                     .size(12.0)
-                    .color(egui::Color32::from_rgb(100, 100, 110)),
+                    .color(widgets::muted_text(dark)),
             );
         }
     });

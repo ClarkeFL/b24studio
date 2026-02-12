@@ -28,7 +28,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, _ble: &BleHandle) {
         .map(|v| format!("{v:.6}"))
         .unwrap_or_else(|| "--".to_string());
 
-    let units_text = state.live_data.current_units
+    let units_text = state.calibration.cal_units
+        .or(state.live_data.current_units)
         .map(|u| DataUnits::from_byte(u).label().to_string())
         .unwrap_or_default();
 

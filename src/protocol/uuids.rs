@@ -11,6 +11,13 @@ fn b24_uuid(short: u32) -> Uuid {
     )
 }
 
+// ── Standard BLE GAP ──────────────────────────────────────────────
+
+/// Standard BLE GAP Device Name characteristic (0x2A00)
+pub fn char_gap_device_name() -> Uuid {
+    Uuid::from_fields(0x00002a00, 0x0000, 0x1000, &[0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb])
+}
+
 // ── Configuration Service ──────────────────────────────────────────
 
 pub fn svc_config() -> Uuid { b24_uuid(0xa970fd30) }

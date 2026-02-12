@@ -29,7 +29,8 @@ fn show_auto_cal(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
         ui.label("Low Value:");
         ui.add(
             egui::TextEdit::singleline(&mut state.ui.cal_wizard.low_value)
-                .desired_width(120.0),
+                .desired_width(120.0)
+                .vertical_align(egui::Align::Center),
         );
         if ui.button("Acquire Low Input").clicked() {
             // Read the current base value as the low input
@@ -50,7 +51,8 @@ fn show_auto_cal(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
         ui.label("High Value:");
         ui.add(
             egui::TextEdit::singleline(&mut state.ui.cal_wizard.high_value)
-                .desired_width(120.0),
+                .desired_width(120.0)
+                .vertical_align(egui::Align::Center),
         );
         if ui.button("Acquire High Input").clicked() {
             ble.send(BleCommand::ReadCharacteristic(uuids::char_base_value()));

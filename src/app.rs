@@ -3,6 +3,7 @@ use uuid::Uuid;
 use log::{info, debug, warn};
 
 use crate::state::*;
+use crate::ble::error::BleError;
 use crate::ble::events::BleEvent;
 use crate::ble::manager::BleHandle;
 use crate::protocol::{uuids, codec, calibration};
@@ -13,6 +14,8 @@ pub struct B24App {
     state: AppState,
     ble: BleHandle,
     update_rx: Option<std::sync::mpsc::Receiver<String>>,
+    /// Last time we read the base_value register (for live raw mV/V on calibration page)
+    last_base_value_read: Option<std::time::Instant>,
 }
 
 impl B24App {
@@ -53,6 +56,7 @@ impl B24App {
             state: AppState::default(),
             ble,
             update_rx: Some(update_rx),
+            last_base_value_read: None,
         }
     }
 
@@ -253,6 +257,10 @@ impl B24App {
                     self.state.track_send(&cmd3);
                     self.ble.send(cmd3);
 
+                    let cmd4 = BleCommand::ReadCharacteristic(uuids::char_gap_device_name());
+                    self.state.track_send(&cmd4);
+                    self.ble.send(cmd4);
+
                     // Auto-read all advanced params
                     for param in crate::protocol::types::AdvancedParam::ALL {
                         let cmd = BleCommand::ReadAdvanced { index: param.index() };
@@ -296,21 +304,33 @@ impl B24App {
                 }
                 BleEvent::Error(e) => {
                     let msg = e.to_string();
-                    warn!("BLE error: {msg}");
-                    self.state.connection.error_message = Some(msg);
-                    // If we were trying to connect or thought we were connected,
-                    // reset fully back to Disconnected so user can retry
-                    if self.state.connection.phase == ConnectionPhase::Connecting
-                        || self.state.connection.phase == ConnectionPhase::Connected
-                    {
-                        self.state.connection.phase = ConnectionPhase::Disconnected;
-                        self.state.connection.show_pin_dialog = false;
-                        self.state.connection.pending_connect_id = None;
-                        // Switch back to Connect tab
-                        self.state.ui.active_tab = Tab::Connect;
+                    // Non-fatal errors: characteristic not found or single read failed.
+                    // Don't disconnect — just log and clear pending for that UUID.
+                    let is_non_fatal = matches!(&e,
+                        BleError::CharacteristicNotFound(_) | BleError::ReadFailed(_)
+                    );
+                    if is_non_fatal && self.state.connection.phase == ConnectionPhase::Connected {
+                        debug!("Non-fatal BLE error (ignored): {msg}");
+                        // Clear pending for the GAP device name to avoid stuck spinners
+                        self.state.ui.pending_reads.remove(&uuids::char_gap_device_name());
+                        self.state.ui.pending_writes.remove(&uuids::char_gap_device_name());
+                    } else {
+                        warn!("BLE error: {msg}");
+                        self.state.connection.error_message = Some(msg);
+                        // If we were trying to connect or thought we were connected,
+                        // reset fully back to Disconnected so user can retry
+                        if self.state.connection.phase == ConnectionPhase::Connecting
+                            || self.state.connection.phase == ConnectionPhase::Connected
+                        {
+                            self.state.connection.phase = ConnectionPhase::Disconnected;
+                            self.state.connection.show_pin_dialog = false;
+                            self.state.connection.pending_connect_id = None;
+                            // Switch back to Connect tab
+                            self.state.ui.active_tab = Tab::Connect;
+                        }
+                        // Clear all pending to prevent stuck spinners
+                        self.state.clear_pending();
                     }
-                    // Clear all pending to prevent stuck spinners
-                    self.state.clear_pending();
                 }
             }
         }
@@ -457,6 +477,9 @@ impl B24App {
             }
         } else if uuid == uuids::char_data_units() {
             self.state.live_data.current_units = codec::decode_u8(data).ok();
+            self.state.config.data_units = codec::decode_u8(data).ok();
+        } else if uuid == uuids::char_gap_device_name() {
+            self.state.config.local_name = Some(codec::decode_string(data));
         }
     }
 
@@ -482,8 +505,9 @@ impl B24App {
                 if self.state.log.is_logging {
                     let units_label = self
                         .state
-                        .live_data
-                        .current_units
+                        .calibration
+                        .cal_units
+                        .or(self.state.live_data.current_units)
                         .map(|u| DataUnits::from_byte(u).label().to_string())
                         .unwrap_or_default();
                     let status = self
@@ -507,6 +531,7 @@ impl B24App {
         } else if uuid == uuids::char_data_units() {
             if let Some(&b) = data.first() {
                 self.state.live_data.current_units = Some(b);
+                self.state.config.data_units = Some(b);
             }
         }
     }
@@ -522,6 +547,13 @@ impl eframe::App for B24App {
             }
         }
 
+        // Apply theme visuals
+        if self.state.ui.dark_mode {
+            ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            ctx.set_visuals(egui::Visuals::light());
+        }
+
         // Process BLE events
         self.process_ble_events();
 
@@ -533,6 +565,25 @@ impl eframe::App for B24App {
             || self.state.ui.view_mode.active
         {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
+
+        // Periodically read base_value (raw mV/V) when on Calibration tab and connected
+        if self.state.connection.phase == ConnectionPhase::Connected
+            && self.state.ui.active_tab == Tab::Calibration
+        {
+            let should_read = match self.last_base_value_read {
+                Some(last) => last.elapsed() > std::time::Duration::from_millis(500),
+                None => true,
+            };
+            if should_read {
+                let uuid = uuids::char_base_value();
+                if !self.state.is_pending(&uuid) {
+                    let cmd = crate::ble::commands::BleCommand::ReadCharacteristic(uuid);
+                    self.state.track_send(&cmd);
+                    self.ble.send(cmd);
+                    self.last_base_value_read = Some(std::time::Instant::now());
+                }
+            }
         }
 
         // Top panel: tab bar + disconnect button
@@ -553,11 +604,21 @@ impl eframe::App for B24App {
                 ui.selectable_value(&mut self.state.ui.active_tab, Tab::Log, "Log");
                 ui.selectable_value(&mut self.state.ui.active_tab, Tab::MobileExport, "Mobile Export");
 
-                // Right-aligned disconnect button (visible when connected/connecting, but NOT on Connect tab)
-                let phase = self.state.connection.phase;
-                let on_connect_tab = self.state.ui.active_tab == Tab::Connect;
-                if !on_connect_tab && (phase == ConnectionPhase::Connected || phase == ConnectionPhase::Connecting) {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Right-aligned: theme toggle + disconnect button
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Theme toggle (always visible)
+                    let toggle_label = if self.state.ui.dark_mode { "☀" } else { "🌙" };
+                    let toggle_tooltip = if self.state.ui.dark_mode { "Switch to light mode" } else { "Switch to dark mode" };
+                    if ui.add(egui::Button::new(
+                        egui::RichText::new(toggle_label).size(16.0)
+                    ).min_size(egui::vec2(32.0, 28.0))).on_hover_text(toggle_tooltip).clicked() {
+                        self.state.ui.dark_mode = !self.state.ui.dark_mode;
+                    }
+
+                    // Disconnect button (visible when connected/connecting, but NOT on Connect tab)
+                    let phase = self.state.connection.phase;
+                    let on_connect_tab = self.state.ui.active_tab == Tab::Connect;
+                    if !on_connect_tab && (phase == ConnectionPhase::Connected || phase == ConnectionPhase::Connecting) {
                         if ui.add(
                             egui::Button::new(
                                 egui::RichText::new("Disconnect").color(egui::Color32::WHITE)
@@ -573,8 +634,8 @@ impl eframe::App for B24App {
                         if phase == ConnectionPhase::Connecting {
                             ui.spinner();
                         }
-                    });
-                }
+                    }
+                });
             });
         });
 

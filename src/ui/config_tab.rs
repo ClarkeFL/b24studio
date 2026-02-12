@@ -22,6 +22,10 @@ struct ExportableConfig {
     data_gain: Option<f32>,
     data_offset: Option<f32>,
     cal_pin: Option<u32>,
+    #[serde(default)]
+    local_name: Option<String>,
+    #[serde(default)]
+    data_units: Option<u8>,
 }
 
 pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
@@ -37,12 +41,14 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
         )).clicked() {
             send_tracked(state, ble, BleCommand::ReadAll(uuids::all_config_uuids()));
             send_tracked(state, ble, BleCommand::ReadAll(uuids::all_calibration_uuids()));
+            send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_data_units()));
+            send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_gap_device_name()));
         }
 
         ui.add_space(8.0);
 
         if ui.add_sized([130.0, 32.0], egui::Button::new(
-            egui::RichText::new("Save Changes").size(15.0)
+            egui::RichText::new("Save Changes").size(15.0).color(egui::Color32::WHITE)
         ).fill(widgets::COLOR_BTN_GREEN)).clicked() {
             save_all_changes(state, ble);
         }
@@ -72,15 +78,18 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
             // LEFT: Device Information (read-only)
             widgets::section_header(&mut cols[0], "Device Information");
 
+            let info_input_width = 180.0;
+
             egui::Grid::new("cfg_device_info")
-                .num_columns(2)
-                .spacing([24.0, 10.0])
-                .min_col_width(140.0)
+                .num_columns(3)
+                .spacing([16.0, 10.0])
+                .min_col_width(80.0)
                 .show(&mut cols[0], |ui| {
                     field_label(ui, "Model");
                     field_value_or_spinner(ui,
                         state.config.model_name.as_deref().unwrap_or("--"),
                         uuids::char_model_name(), state);
+                    ui.label(""); // empty column
                     ui.end_row();
 
                     field_label(ui, "Firmware Version");
@@ -89,6 +98,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                             .map(|v| format!("{v:.2}"))
                             .unwrap_or_else(|| "--".into()),
                         uuids::char_firmware_ver(), state);
+                    ui.label("");
                     ui.end_row();
 
                     field_label(ui, "Serial Number");
@@ -97,6 +107,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                             .map(|v| format!("{v}"))
                             .unwrap_or_else(|| "--".into()),
                         uuids::char_serial_number(), state);
+                    ui.label("");
                     ui.end_row();
 
                     field_label(ui, "Battery");
@@ -113,9 +124,25 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                             } else {
                                 widgets::COLOR_SUCCESS
                             })
-                            .unwrap_or(egui::Color32::GRAY);
+                            .unwrap_or(widgets::muted_text(ui.visuals().dark_mode));
                         ui.label(egui::RichText::new(&batt_str).size(16.0).monospace().color(batt_color));
                     }
+                    ui.label("");
+                    ui.end_row();
+
+                    field_label_help(ui, "Local Name", Some(
+                        "The BLE broadcast name of this device.\n\
+                         This is the name that appears during scanning.\n\
+                         Change it to identify your device (e.g. \"B24-Tank1\")."
+                    ));
+                    field_value_or_spinner(ui,
+                        state.config.local_name.as_deref().unwrap_or("--"),
+                        uuids::char_gap_device_name(), state);
+                    ui.add_sized([info_input_width, 30.0],
+                        egui::TextEdit::singleline(&mut state.ui.edit.local_name)
+                            .hint_text("e.g. B24")
+                            .vertical_align(egui::Align::Center)
+                            .font(egui::TextStyle::Body));
                     ui.end_row();
                 });
 
@@ -142,6 +169,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                     ui.add_sized([input_width, 30.0],
                         egui::TextEdit::singleline(&mut state.ui.edit.data_rate)
                             .hint_text("1000")
+                            .vertical_align(egui::Align::Center)
                             .font(egui::TextStyle::Body));
                     ui.end_row();
 
@@ -158,6 +186,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                     ui.add_sized([input_width, 30.0],
                         egui::TextEdit::singleline(&mut state.ui.edit.resolution)
                             .hint_text("8 / 16 / 32 / 48 / 64")
+                            .vertical_align(egui::Align::Center)
                             .font(egui::TextStyle::Body));
                     ui.end_row();
 
@@ -172,7 +201,46 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                     ui.add_sized([input_width, 30.0],
                         egui::TextEdit::singleline(&mut state.ui.edit.data_tag)
                             .hint_text("hex e.g. 7BE5")
+                            .vertical_align(egui::Align::Center)
                             .font(egui::TextStyle::Body));
+                    ui.end_row();
+
+                    field_label_help(ui, "Data Units", Some(
+                        "The measurement units sent in BLE advertising packets.\n\
+                         This determines the unit label shown alongside the data value\n\
+                         in scan results and View mode."
+                    ));
+                    let du_str = state.config.data_units
+                        .map(|u| {
+                            let du = DataUnits::from_byte(u);
+                            format!("{} ({})", du.label(), u)
+                        })
+                        .unwrap_or_else(|| "--".to_string());
+                    field_value_or_spinner(ui, &du_str, uuids::char_data_units(), state);
+
+                    let du_selected_label = if state.ui.edit.data_units_display.is_empty() {
+                        "Select unit...".to_string()
+                    } else if let Ok(byte_val) = state.ui.edit.data_units_display.parse::<u8>() {
+                        DataUnits::from_byte(byte_val).dropdown_label()
+                    } else {
+                        "Select unit...".to_string()
+                    };
+                    egui::ComboBox::from_id_salt("cfg_data_units_combo")
+                        .selected_text(&du_selected_label)
+                        .width(input_width)
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(state.ui.edit.data_units_display.is_empty(), "-- None --").clicked() {
+                                state.ui.edit.data_units_display.clear();
+                            }
+                            for unit in DataUnits::ALL {
+                                let label = unit.dropdown_label();
+                                let byte_str = format!("{}", unit.to_byte());
+                                let is_selected = state.ui.edit.data_units_display == byte_str;
+                                if ui.selectable_label(is_selected, &label).clicked() {
+                                    state.ui.edit.data_units_display = byte_str;
+                                }
+                            }
+                        });
                     ui.end_row();
                 });
         });
@@ -204,6 +272,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                     ui.add_sized([input_width, 30.0],
                         egui::TextEdit::singleline(&mut state.ui.edit.config_pin)
                             .hint_text("0")
+                            .vertical_align(egui::Align::Center)
                             .font(egui::TextStyle::Body));
                     ui.end_row();
 
@@ -218,6 +287,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                     ui.add_sized([input_width, 30.0],
                         egui::TextEdit::singleline(&mut state.ui.edit.view_pin)
                             .hint_text("0000")
+                            .vertical_align(egui::Align::Center)
                             .font(egui::TextStyle::Body));
                     ui.end_row();
                 });
@@ -242,6 +312,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                     ui.add_sized([input_width, 30.0],
                         egui::TextEdit::singleline(&mut state.ui.edit.battery_threshold)
                             .hint_text("2.4")
+                            .vertical_align(egui::Align::Center)
                             .font(egui::TextStyle::Body));
                     ui.end_row();
 
@@ -258,6 +329,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                     ui.add_sized([input_width, 30.0],
                         egui::TextEdit::singleline(&mut state.ui.edit.system_zero)
                             .hint_text("0.0")
+                            .vertical_align(egui::Align::Center)
                             .font(egui::TextStyle::Body));
                     ui.end_row();
                 });
@@ -291,7 +363,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                             .unwrap_or_else(|| "--".to_string()));
                     field_value_or_spinner(ui, &sr_str, uuids::char_sens_range(), state);
                     ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.sensitivity_range)
-                        .hint_text("0-3"));
+                        .hint_text("0-3")
+                        .vertical_align(egui::Align::Center));
                     ui.end_row();
 
                     // Data Gain (unit conversion)
@@ -304,7 +377,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                         .unwrap_or_else(|| "--".to_string());
                     field_value_or_spinner(ui, &dg, uuids::char_data_gain(), state);
                     ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.data_gain)
-                        .hint_text("1.0"));
+                        .hint_text("1.0")
+                        .vertical_align(egui::Align::Center));
                     ui.end_row();
 
                     // Data Offset (unit conversion)
@@ -317,7 +391,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                         .unwrap_or_else(|| "--".to_string());
                     field_value_or_spinner(ui, &do_, uuids::char_data_offset(), state);
                     ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.data_offset)
-                        .hint_text("0.0"));
+                        .hint_text("0.0")
+                        .vertical_align(egui::Align::Center));
                     ui.end_row();
 
                     // Cal PIN
@@ -329,7 +404,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                         .map(|v| format!("{v}"))
                         .unwrap_or_else(|| "--".to_string());
                     field_value_or_spinner(ui, &cp, uuids::char_cal_pin(), state);
-                    ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.cal_pin));
+                    ui.add_sized([edit_w, 30.0], egui::TextEdit::singleline(&mut state.ui.edit.cal_pin)
+                        .vertical_align(egui::Align::Center));
                     ui.end_row();
                 });
 
@@ -430,7 +506,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
             for (action, color) in actions {
                 if ui.add_sized(
                     [170.0, 32.0],
-                    egui::Button::new(egui::RichText::new(action.label()).size(14.0)).fill(color),
+                    egui::Button::new(egui::RichText::new(action.label()).size(14.0).color(egui::Color32::WHITE)).fill(color),
                 ).clicked() {
                     ble.send(BleCommand::ExecuteAction(action));
                 }
@@ -498,6 +574,20 @@ fn save_all_changes(state: &mut AppState, ble: &BleHandle) {
             });
         }
     }
+    if !state.ui.edit.local_name.is_empty() {
+        let name = state.ui.edit.local_name.trim();
+        send_tracked(state, ble, BleCommand::WriteCharacteristic {
+            uuid: uuids::char_gap_device_name(),
+            data: name.as_bytes().to_vec(),
+        });
+    }
+    if !state.ui.edit.data_units_display.is_empty() {
+        if let Ok(v) = state.ui.edit.data_units_display.parse::<u8>() {
+            send_tracked(state, ble, BleCommand::WriteCharacteristic {
+                uuid: uuids::char_data_units(), data: codec::encode_u8(v),
+            });
+        }
+    }
 
     // Calibration register fields
     if !state.ui.edit.sensitivity_range.is_empty() {
@@ -539,6 +629,8 @@ fn save_all_changes(state: &mut AppState, ble: &BleHandle) {
     // Re-read all to reflect changes
     send_tracked(state, ble, BleCommand::ReadAll(uuids::all_config_uuids()));
     send_tracked(state, ble, BleCommand::ReadAll(uuids::all_calibration_uuids()));
+    send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_data_units()));
+    send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_gap_device_name()));
 
     // Clear edit buffers
     state.ui.edit.data_rate.clear();
@@ -548,6 +640,8 @@ fn save_all_changes(state: &mut AppState, ble: &BleHandle) {
     state.ui.edit.view_pin.clear();
     state.ui.edit.battery_threshold.clear();
     state.ui.edit.system_zero.clear();
+    state.ui.edit.local_name.clear();
+    state.ui.edit.data_units_display.clear();
     state.ui.edit.cal_units.clear();
     state.ui.edit.sensitivity_range.clear();
     state.ui.edit.data_gain.clear();
@@ -582,6 +676,8 @@ fn export_config(state: &AppState) {
     write_opt_f32(&mut lines, "system_zero", state.config.system_zero);
     write_opt_u32(&mut lines, "config_pin", state.config.config_pin);
     write_opt_str(&mut lines, "data_tag", state.config.data_tag.as_deref());
+    write_opt_str(&mut lines, "local_name", state.config.local_name.as_deref());
+    write_opt_u8(&mut lines, "data_units", state.config.data_units);
     lines.push(String::new());
 
     lines.push("[Calibration]".to_string());
@@ -704,6 +800,17 @@ fn import_config(state: &mut AppState, ble: &BleHandle) {
                 uuid: uuids::char_data_tag(), data: codec::encode_u16_be(val),
             });
         }
+    }
+    if let Some(v) = kvs.get("local_name") {
+        send_tracked(state, ble, BleCommand::WriteCharacteristic {
+            uuid: uuids::char_gap_device_name(),
+            data: v.as_bytes().to_vec(),
+        });
+    }
+    if let Some(v) = kvs.get("data_units").and_then(|s| s.parse::<u8>().ok()) {
+        send_tracked(state, ble, BleCommand::WriteCharacteristic {
+            uuid: uuids::char_data_units(), data: codec::encode_u8(v),
+        });
     }
 
     // Calibration section
@@ -835,6 +942,17 @@ fn import_from_exportable(state: &mut AppState, ble: &BleHandle, cfg: &Exportabl
     if let Some(val) = cfg.cal_pin {
         send_tracked(state, ble, BleCommand::WriteCharacteristic {
             uuid: uuids::char_cal_pin(), data: codec::encode_u32_be(val),
+        });
+    }
+    if let Some(ref name) = cfg.local_name {
+        send_tracked(state, ble, BleCommand::WriteCharacteristic {
+            uuid: uuids::char_gap_device_name(),
+            data: name.as_bytes().to_vec(),
+        });
+    }
+    if let Some(val) = cfg.data_units {
+        send_tracked(state, ble, BleCommand::WriteCharacteristic {
+            uuid: uuids::char_data_units(), data: codec::encode_u8(val),
         });
     }
     send_tracked(state, ble, BleCommand::ReadAll(uuids::all_config_uuids()));

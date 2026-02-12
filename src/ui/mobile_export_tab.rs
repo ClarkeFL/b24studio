@@ -100,14 +100,16 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, _ble: &BleHandle) {
                         ui.add_sized([input_w, 30.0],
                             egui::TextEdit::singleline(&mut state.ui.mobile_export.project_name)
                                 .hint_text("My Project")
-                                .font(egui::TextStyle::Body));
+                                .font(egui::TextStyle::Body)
+                                .vertical_align(egui::Align::Center));
                         ui.end_row();
 
                         ui.label(egui::RichText::new("View PIN").size(15.0));
                         ui.add_sized([input_w, 30.0],
                             egui::TextEdit::singleline(&mut state.ui.mobile_export.view_pin)
                                 .hint_text("0000")
-                                .font(egui::TextStyle::Body));
+                                .font(egui::TextStyle::Body)
+                                .vertical_align(egui::Align::Center));
                         ui.end_row();
 
                         ui.label(egui::RichText::new("Timeout").size(15.0));
@@ -179,11 +181,13 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, _ble: &BleHandle) {
                             ui.add_sized([100.0, 28.0],
                                 egui::TextEdit::singleline(&mut row.data_tag)
                                     .hint_text("e.g. 7BE5")
+                                    .vertical_align(egui::Align::Center)
                             );
 
                             ui.add_sized([160.0, 28.0],
                                 egui::TextEdit::singleline(&mut row.description)
                                     .hint_text("e.g. Load Cell 1")
+                                    .vertical_align(egui::Align::Center)
                             );
 
                             // Unit dropdown

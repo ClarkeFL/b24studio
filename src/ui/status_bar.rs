@@ -4,6 +4,8 @@ use crate::protocol::types::DataUnits;
 use crate::ui::widgets;
 
 pub fn show(ui: &mut egui::Ui, state: &AppState) {
+    let dark = ui.visuals().dark_mode;
+
     ui.horizontal(|ui| {
         // Connection status indicator
         let (color, text) = match state.connection.phase {
@@ -20,7 +22,7 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
 
         ui.separator();
 
-        // Connected device info
+        // Connected device info + live data (only when connected)
         if state.connection.phase == ConnectionPhase::Connected {
             if let Some(tag) = &state.config.data_tag {
                 ui.label(format!("Tag: {tag}"));
@@ -30,37 +32,38 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
                 ui.label(model.as_str());
                 ui.separator();
             }
-        }
 
-        // Battery
-        if let Some(batt) = state.config.battery_value {
-            let batt_color = if batt < 2.5 {
-                widgets::COLOR_ERROR
-            } else {
-                widgets::COLOR_SUCCESS
-            };
-            ui.colored_label(batt_color, format!("Batt: {batt:.2}V"));
-            ui.separator();
-        }
+            // Battery
+            if let Some(batt) = state.config.battery_value {
+                let batt_color = if batt < 2.5 {
+                    widgets::COLOR_ERROR
+                } else {
+                    widgets::COLOR_SUCCESS
+                };
+                ui.colored_label(batt_color, format!("Batt: {batt:.2}V"));
+                ui.separator();
+            }
 
-        // Live value
-        if let Some(val) = state.live_data.current_value {
-            let units_label = state.live_data.current_units
-                .map(|u| DataUnits::from_byte(u).label())
-                .unwrap_or("");
-            ui.label(format!("Value: {val:.4} {units_label}"));
-            ui.separator();
-        }
+            // Live value
+            if let Some(val) = state.live_data.current_value {
+                let units_label = state.calibration.cal_units
+                    .or(state.live_data.current_units)
+                    .map(|u| DataUnits::from_byte(u).label())
+                    .unwrap_or("");
+                ui.label(format!("Value: {val:.4} {units_label}"));
+                ui.separator();
+            }
 
-        // Status description
-        if let Some(status) = state.live_data.current_status {
-            let desc = status.description();
-            let color = if desc == "OK" {
-                widgets::COLOR_SUCCESS
-            } else {
-                widgets::COLOR_WARNING
-            };
-            ui.colored_label(color, desc);
+            // Status description
+            if let Some(status) = state.live_data.current_status {
+                let desc = status.description();
+                let color = if desc == "OK" {
+                    widgets::COLOR_SUCCESS
+                } else {
+                    widgets::COLOR_WARNING
+                };
+                ui.colored_label(color, desc);
+            }
         }
 
         // Error
@@ -74,7 +77,7 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
             ui.label(
                 egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                     .size(12.0)
-                    .color(egui::Color32::GRAY),
+                    .color(widgets::muted_text(dark)),
             );
 
             ui.separator();
@@ -83,7 +86,7 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
                 egui::Label::new(
                     egui::RichText::new("Fabio")
                         .size(12.0)
-                        .color(egui::Color32::from_rgb(100, 180, 255)),
+                        .color(widgets::link_color(dark)),
                 )
                 .sense(egui::Sense::click()),
             );
@@ -96,7 +99,7 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
             ui.label(
                 egui::RichText::new("Built by")
                     .size(12.0)
-                    .color(egui::Color32::GRAY),
+                    .color(widgets::muted_text(dark)),
             );
 
             if let Some(ref latest) = state.ui.update_available {
@@ -105,7 +108,7 @@ pub fn show(ui: &mut egui::Ui, state: &AppState) {
                     egui::Label::new(
                         egui::RichText::new(format!("Update available: v{latest}"))
                             .size(12.0)
-                            .color(egui::Color32::from_rgb(100, 180, 255)),
+                            .color(widgets::link_color(dark)),
                     )
                     .sense(egui::Sense::click()),
                 );

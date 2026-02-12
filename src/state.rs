@@ -125,6 +125,8 @@ pub struct ConfigRegisters {
     pub system_zero: Option<f32>,
     pub model_name: Option<String>,
     pub firmware_version: Option<f32>,
+    pub local_name: Option<String>,
+    pub data_units: Option<u8>,
 }
 
 // ── Calibration Registers ──────────────────────────────────────────
@@ -240,6 +242,7 @@ pub struct UiState {
     /// Set by background update checker if a newer version exists on GitHub
     pub update_available: Option<String>,
     pub update_checked: bool,
+    pub dark_mode: bool,
 }
 
 impl Default for UiState {
@@ -258,6 +261,7 @@ impl Default for UiState {
             pending_adv_writes: HashSet::new(),
             update_available: None,
             update_checked: false,
+            dark_mode: true,
         }
     }
 }
@@ -292,6 +296,8 @@ pub struct EditBuffers {
     pub view_pin: String,
     pub data_tag: String,
     pub system_zero: String,
+    pub local_name: String,
+    pub data_units_display: String,
     // Calibration
     pub sensitivity_range: String,
     pub lin_index: String,
