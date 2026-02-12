@@ -620,7 +620,6 @@ impl eframe::App for B24App {
                     "Calibration",
                 );
                 ui.selectable_value(&mut self.state.ui.active_tab, Tab::Live, "Live Data");
-                ui.selectable_value(&mut self.state.ui.active_tab, Tab::Log, "Log");
                 ui.selectable_value(&mut self.state.ui.active_tab, Tab::MobileExport, "Mobile Export");
 
                 // Right-aligned: theme toggle + disconnect button
@@ -647,6 +646,7 @@ impl eframe::App for B24App {
                             self.state.connection.phase = ConnectionPhase::Disconnected;
                             self.state.connection.show_pin_dialog = false;
                             self.state.connection.pending_connect_id = None;
+                            self.state.ui.view_mode.active = false;
                             self.state.clear_pending();
                             self.state.ui.active_tab = Tab::Connect;
                         }
@@ -672,7 +672,6 @@ impl eframe::App for B24App {
                     ui::calibration_tab::show(ui, &mut self.state, &self.ble);
                 }
                 Tab::Live => ui::live_tab::show(ui, &mut self.state, &self.ble),
-                Tab::Log => ui::log_tab::show(ui, &mut self.state, &self.ble),
                 Tab::MobileExport => ui::mobile_export_tab::show(ui, &mut self.state, &self.ble),
             }
         });

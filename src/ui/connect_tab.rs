@@ -1,6 +1,6 @@
 use eframe::egui;
 use egui_plot::{Plot, Line, PlotPoints};
-use crate::state::{AppState, ConnectionPhase, ViewSource};
+use crate::state::{AppState, ConnectionPhase, Tab, ViewSource};
 use crate::ble::commands::BleCommand;
 use crate::ble::manager::BleHandle;
 use crate::protocol::types::DataUnits;
@@ -56,6 +56,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                 state.connection.phase = ConnectionPhase::Disconnected;
                 state.connection.show_pin_dialog = false;
                 state.connection.pending_connect_id = None;
+                state.ui.view_mode.active = false;
                 state.clear_pending();
             }
         }
@@ -167,6 +168,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
                     state.ui.view_mode.show_pin_dialog = false;
                     state.ui.view_mode.active = true;
                     state.ui.view_mode.source = ViewSource::Advertising;
+                    state.ui.view_mode.return_tab = Some(Tab::Connect);
                     state.ui.view_mode.current_value = None;
                     state.ui.view_mode.current_units = None;
                     state.ui.view_mode.current_status = None;
@@ -665,6 +667,10 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn exit_view_mode(state: &mut AppState) {
+    // Restore the tab we came from (e.g. Live Data)
+    if let Some(tab) = state.ui.view_mode.return_tab.take() {
+        state.ui.active_tab = tab;
+    }
     state.ui.view_mode.active = false;
     state.ui.view_mode.peripheral_id = None;
     state.ui.view_mode.device_name.clear();

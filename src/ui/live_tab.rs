@@ -17,6 +17,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, _ble: &BleHandle) {
                 state.ui.view_mode.active = true;
                 state.ui.view_mode.source = ViewSource::Connected;
                 state.ui.view_mode.device_name = "Connected Device".to_string();
+                state.ui.view_mode.return_tab = Some(Tab::Live);
                 state.ui.active_tab = Tab::Connect;
             }
         });

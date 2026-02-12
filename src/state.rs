@@ -272,7 +272,6 @@ pub enum Tab {
     Connect,
     Configuration,
     Calibration,
-    Log,
     Live,
     MobileExport,
 }
@@ -429,6 +428,7 @@ pub struct ViewModeState {
     pub start_time: Option<std::time::Instant>,
     pub last_update: Option<std::time::Instant>,
     pub display_decimals: usize,
+    pub return_tab: Option<Tab>,
 }
 
 impl Default for ViewModeState {
@@ -448,6 +448,7 @@ impl Default for ViewModeState {
             start_time: None,
             last_update: None,
             display_decimals: 4,
+            return_tab: None,
         }
     }
 }
