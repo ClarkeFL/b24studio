@@ -31,6 +31,22 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Set version from tag
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          Write-Host "Version: $version"
+
+          # Update Cargo.toml
+          (Get-Content Cargo.toml) -replace 'version = ".*?"', "version = `"$version`"" |
+            Set-Content Cargo.toml
+
+          # Update Inno Setup script
+          (Get-Content installer\b24-tool-setup.iss) -replace '#define MyAppVersion ".*?"', "#define MyAppVersion `"$version`"" |
+            Set-Content installer\b24-tool-setup.iss
+
+          Write-Host "Cargo.toml and installer updated to $version"
+        shell: pwsh
+
       - name: Build release binary
         run: cargo build --release
 
