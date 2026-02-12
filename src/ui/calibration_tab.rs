@@ -65,6 +65,111 @@ fn adv_value_or_spinner(ui: &mut egui::Ui, text: &str, index: u8, state: &AppSta
     }
 }
 
+// -- Fetch Existing Calibration ---------------------------------------------
+
+/// Show a bar with "Fetch Existing Calibration" button + Refresh.
+/// `is_table_cal` determines which form to populate.
+fn show_fetch_calibration_bar(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle, is_table_cal: bool) {
+    ui.horizontal(|ui| {
+        let has_table = !state.calibration.linearisation_table.is_empty();
+        ui.add_enabled_ui(has_table, |ui| {
+            if ui.add_sized([200.0, 28.0], egui::Button::new(
+                egui::RichText::new("Fetch Existing Calibration").size(14.0)
+            )).clicked() {
+                if is_table_cal {
+                    populate_table_cal_from_device(state);
+                } else {
+                    populate_auto_cal_from_device(state);
+                }
+            }
+        });
+        if !has_table {
+            let dark = ui.visuals().dark_mode;
+            ui.label(
+                egui::RichText::new("No linearisation data on device yet")
+                    .size(13.0).color(widgets::muted_text(dark))
+            );
+        }
+        // Refresh button to re-read linearisation table from device
+        if ui.small_button("Refresh").clicked() {
+            send_tracked(state, ble, BleCommand::ReadAll(uuids::all_calibration_uuids()));
+            send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_lin_points()));
+        }
+    });
+}
+
+/// Reverse-engineer calibration points from the device's linearisation table
+/// and populate the Auto Cal form.
+///
+/// Each linearisation segment stores (valid_from, gain, offset, valid_to).
+/// The B24 formula is: eng_value = gain * raw_mv - offset
+/// So at each mV/V breakpoint we can compute the engineering value.
+fn populate_auto_cal_from_device(state: &mut AppState) {
+    let table = &state.calibration.linearisation_table;
+    if table.is_empty() { return; }
+
+    // Build calibration points: each segment boundary gives us (mV/V, eng_value)
+    let mut points: Vec<(f32, f32)> = Vec::new();
+
+    for (i, entry) in table.iter().enumerate() {
+        // First point of this segment
+        let eng_at_from = entry.gain * entry.valid_from - entry.offset;
+        if i == 0 || (points.last().map(|p| (p.0 - entry.valid_from).abs() > 1e-10).unwrap_or(true)) {
+            points.push((entry.valid_from, eng_at_from));
+        }
+
+        // Last segment also contributes its valid_to endpoint
+        if i == table.len() - 1 {
+            let eng_at_to = entry.gain * entry.valid_to - entry.offset;
+            points.push((entry.valid_to, eng_at_to));
+        }
+    }
+
+    // Populate auto cal points
+    state.ui.auto_cal.points = points.iter().map(|(mv, eng)| {
+        AutoCalPoint {
+            target_value: format!("{eng:.6}"),
+            base_value: Some(*mv),
+            capture_status: CaptureStatus::Captured,
+        }
+    }).collect();
+    state.ui.auto_cal.phase = AutoCalPhase::Editing;
+    state.ui.auto_cal.has_been_applied = false;
+    state.ui.auto_cal.error = None;
+}
+
+/// Reverse-engineer calibration points from the device's linearisation table
+/// and populate the Table Cal form.
+fn populate_table_cal_from_device(state: &mut AppState) {
+    let table = &state.calibration.linearisation_table;
+    if table.is_empty() { return; }
+
+    // Build calibration points: each segment boundary gives us (mV/V, eng_value)
+    let mut points: Vec<(f32, f32)> = Vec::new();
+
+    for (i, entry) in table.iter().enumerate() {
+        let eng_at_from = entry.gain * entry.valid_from - entry.offset;
+        if i == 0 || (points.last().map(|p| (p.0 - entry.valid_from).abs() > 1e-10).unwrap_or(true)) {
+            points.push((entry.valid_from, eng_at_from));
+        }
+
+        if i == table.len() - 1 {
+            let eng_at_to = entry.gain * entry.valid_to - entry.offset;
+            points.push((entry.valid_to, eng_at_to));
+        }
+    }
+
+    // Populate table cal rows
+    state.ui.table_cal.rows = points.iter().map(|(mv, eng)| {
+        TableCalRow {
+            mv_per_v: format!("{mv:.6}"),
+            eng_value: format!("{eng:.6}"),
+        }
+    }).collect();
+    state.ui.table_cal.applied = false;
+    state.ui.table_cal.error = None;
+}
+
 // -- Auto Calibration -------------------------------------------------------
 
 fn show_auto_cal(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
@@ -73,6 +178,11 @@ fn show_auto_cal(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
 
         // Live value banner (full width)
         show_live_value_banner(ui, state);
+
+        ui.add_space(4.0);
+
+        // Fetch Existing Calibration button
+        show_fetch_calibration_bar(ui, state, ble, false);
 
         ui.add_space(8.0);
 
@@ -757,6 +867,11 @@ fn show_table_cal(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle) {
 
         // Live value banner (full width)
         show_live_value_banner(ui, state);
+
+        ui.add_space(4.0);
+
+        // Fetch Existing Calibration button
+        show_fetch_calibration_bar(ui, state, ble, true);
 
         ui.add_space(8.0);
 

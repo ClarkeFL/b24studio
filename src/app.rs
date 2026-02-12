@@ -334,7 +334,8 @@ impl B24App {
                         self.state.connection.error_message = Some(msg);
                         // If we were trying to connect or thought we were connected,
                         // reset fully back to Disconnected so user can retry
-                        if self.state.connection.phase == ConnectionPhase::Connecting
+                        let was_connecting = self.state.connection.phase == ConnectionPhase::Connecting;
+                        if was_connecting
                             || self.state.connection.phase == ConnectionPhase::Connected
                         {
                             self.state.connection.phase = ConnectionPhase::Disconnected;
@@ -342,6 +343,14 @@ impl B24App {
                             self.state.connection.pending_connect_id = None;
                             // Switch back to Connect tab
                             self.state.ui.active_tab = Tab::Connect;
+
+                            // Auto-restart scan after failed connection (e.g. wrong PIN)
+                            // so the user can immediately retry without manually clicking Start Scan
+                            if was_connecting {
+                                self.state.connection.scanned_devices.clear();
+                                self.ble.send(crate::ble::commands::BleCommand::StartScan);
+                                self.state.connection.phase = ConnectionPhase::Scanning;
+                            }
                         }
                         // Clear all pending to prevent stuck spinners
                         self.state.clear_pending();
