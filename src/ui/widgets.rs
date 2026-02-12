@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use eframe::egui;
 use uuid::Uuid;
 use crate::ble::commands::BleCommand;
@@ -253,4 +254,57 @@ pub fn status_indicator(ui: &mut egui::Ui, label: &str, active: bool) {
         ui.painter().circle_filled(rect.center(), 5.0, color);
         ui.label(label);
     });
+}
+
+// ── CSV Export ─────────────────────────────────────────────────────
+
+/// Export history data (elapsed seconds + values) to a CSV file.
+/// Reconstructs wall-clock timestamps from start_time.
+pub fn export_history_csv(
+    history: &VecDeque<(f64, f32)>,
+    start_time: Option<std::time::Instant>,
+    units_label: &str,
+    default_filename: &str,
+) {
+    if history.is_empty() {
+        return;
+    }
+
+    let file = rfd::FileDialog::new()
+        .add_filter("CSV", &["csv"])
+        .set_file_name(default_filename)
+        .save_file();
+
+    if let Some(path) = file {
+        let mut wtr = match csv::Writer::from_path(&path) {
+            Ok(w) => w,
+            Err(e) => {
+                log::error!("Failed to create CSV writer: {e}");
+                return;
+            }
+        };
+
+        let _ = wtr.write_record(["Elapsed (s)", "Timestamp", "Value", "Units"]);
+
+        // Reconstruct wall-clock timestamps:
+        // now - (total_elapsed - entry_elapsed) gives each entry's approximate time
+        let now = chrono::Local::now();
+        let total_elapsed = start_time
+            .map(|t| t.elapsed().as_secs_f64())
+            .unwrap_or(0.0);
+
+        for (elapsed, value) in history {
+            let dt = now - chrono::Duration::milliseconds(
+                ((total_elapsed - elapsed) * 1000.0) as i64,
+            );
+            let _ = wtr.write_record([
+                format!("{elapsed:.3}"),
+                dt.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+                format!("{value}"),
+                units_label.to_string(),
+            ]);
+        }
+        let _ = wtr.flush();
+        log::info!("Exported {} points to {}", history.len(), path.display());
+    }
 }

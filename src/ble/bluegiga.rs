@@ -63,14 +63,14 @@ fn run_inner(
         .timeout(Duration::from_millis(100))
         .open()?;
 
-    // Drain any stale buffered data
+    // Drain any stale buffered data (max 50 iterations to prevent infinite loop)
     let mut drain = [0u8; 256];
-    loop {
+    for _ in 0..50 {
         match port.read(&mut drain) {
             Ok(0) => break,
+            Ok(_n) => continue,
             Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => break,
             Err(_) => break,
-            _ => continue,
         }
     }
 
@@ -80,12 +80,12 @@ fn run_inner(
     std::thread::sleep(Duration::from_millis(100));
 
     // Drain responses from end_procedure
-    loop {
+    for _ in 0..50 {
         match port.read(&mut drain) {
             Ok(0) => break,
+            Ok(_n) => continue,
             Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => break,
             Err(_) => break,
-            _ => continue,
         }
     }
 

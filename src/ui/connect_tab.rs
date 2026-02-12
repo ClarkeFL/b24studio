@@ -618,6 +618,30 @@ pub fn show_view_mode(ui: &mut egui::Ui, state: &mut AppState) {
                         state.ui.view_mode.start_time = None;
                     }
                 }
+
+                if ui.button("Export CSV").clicked() {
+                    let units_label = current_units
+                        .map(|u| DataUnits::from_byte(u).label().to_string())
+                        .unwrap_or_default();
+                    let (history, start_time, filename) = if is_connected_view {
+                        (
+                            &state.live_data.history,
+                            state.live_data.start_time,
+                            "b24_live_data.csv".to_string(),
+                        )
+                    } else {
+                        let name = state.ui.view_mode.device_name
+                            .replace(' ', "_").to_lowercase();
+                        (
+                            &state.ui.view_mode.history,
+                            state.ui.view_mode.start_time,
+                            format!("b24_view_{name}.csv"),
+                        )
+                    };
+                    widgets::export_history_csv(
+                        history, start_time, &units_label, &filename,
+                    );
+                }
             });
         } else if !is_connected_view {
             let dark = ui.visuals().dark_mode;

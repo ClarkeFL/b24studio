@@ -116,9 +116,23 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState, _ble: &BleHandle) {
             ui.label(format!("Avg: {avg:.dp$}"));
         });
 
-        if ui.button("Clear History").clicked() {
-            state.live_data.history.clear();
-            state.live_data.start_time = None;
-        }
+        ui.horizontal(|ui| {
+            if ui.button("Clear History").clicked() {
+                state.live_data.history.clear();
+                state.live_data.start_time = None;
+            }
+            if ui.button("Export CSV").clicked() {
+                let units_label = state.calibration.cal_units
+                    .or(state.live_data.current_units)
+                    .map(|u| DataUnits::from_byte(u).label().to_string())
+                    .unwrap_or_default();
+                widgets::export_history_csv(
+                    &state.live_data.history,
+                    state.live_data.start_time,
+                    &units_label,
+                    "b24_live_data.csv",
+                );
+            }
+        });
     }
 }
