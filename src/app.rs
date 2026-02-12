@@ -52,8 +52,23 @@ impl B24App {
             }
         });
 
+        // Restore persisted settings
+        let mut state = AppState::default();
+        if let Some(storage) = cc.storage {
+            if let Some(dark) = eframe::get_value::<bool>(storage, "dark_mode") {
+                state.ui.dark_mode = dark;
+            }
+        }
+
+        // Apply initial theme
+        if state.ui.dark_mode {
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            cc.egui_ctx.set_visuals(egui::Visuals::light());
+        }
+
         Self {
-            state: AppState::default(),
+            state,
             ble,
             update_rx: Some(update_rx),
             last_base_value_read: None,
@@ -538,6 +553,10 @@ impl B24App {
 }
 
 impl eframe::App for B24App {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, "dark_mode", &self.state.ui.dark_mode);
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for update result from background thread
         if let Some(rx) = &self.update_rx {
