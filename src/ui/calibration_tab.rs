@@ -67,35 +67,53 @@ fn adv_value_or_spinner(ui: &mut egui::Ui, text: &str, index: u8, state: &AppSta
 
 // -- Fetch Existing Calibration ---------------------------------------------
 
-/// Show a bar with "Fetch Existing Calibration" button + Refresh.
+/// Show a bar with "Fetch Existing Calibration" button + Refresh,
+/// styled to match the live value banner.
 /// `is_table_cal` determines which form to populate.
 fn show_fetch_calibration_bar(ui: &mut egui::Ui, state: &mut AppState, ble: &BleHandle, is_table_cal: bool) {
-    ui.horizontal(|ui| {
-        let has_table = !state.calibration.linearisation_table.is_empty();
-        ui.add_enabled_ui(has_table, |ui| {
-            if ui.add_sized([200.0, 28.0], egui::Button::new(
-                egui::RichText::new("Fetch Existing Calibration").size(14.0)
-            )).clicked() {
-                if is_table_cal {
-                    populate_table_cal_from_device(state);
-                } else {
-                    populate_auto_cal_from_device(state);
+    let dark = ui.visuals().dark_mode;
+    egui::Frame::none()
+        .fill(widgets::subtle_bg(dark))
+        .rounding(egui::Rounding::same(6.0))
+        .inner_margin(egui::Margin::same(8.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let has_table = !state.calibration.linearisation_table.is_empty();
+                ui.add_enabled_ui(has_table, |ui| {
+                    if ui.add_sized([200.0, 28.0], egui::Button::new(
+                        egui::RichText::new("Fetch Existing Calibration").size(14.0)
+                    )).clicked() {
+                        if is_table_cal {
+                            populate_table_cal_from_device(state);
+                        } else {
+                            populate_auto_cal_from_device(state);
+                        }
+                    }
+                });
+                if !has_table {
+                    ui.label(
+                        egui::RichText::new("No linearisation data on device yet")
+                            .size(13.0).color(widgets::muted_text(dark))
+                    );
                 }
-            }
+                // Refresh button to re-read linearisation table from device
+                if ui.add_sized([80.0, 28.0], egui::Button::new(
+                    egui::RichText::new("↻ Refresh").size(13.0)
+                )).clicked() {
+                    send_tracked(state, ble, BleCommand::ReadAll(uuids::all_calibration_uuids()));
+                    send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_lin_points()));
+                }
+
+                if has_table {
+                    ui.separator();
+                    let n = state.calibration.linearisation_table.len();
+                    ui.label(
+                        egui::RichText::new(format!("{n} segment{} on device", if n == 1 { "" } else { "s" }))
+                            .size(13.0).color(widgets::muted_text(dark))
+                    );
+                }
+            });
         });
-        if !has_table {
-            let dark = ui.visuals().dark_mode;
-            ui.label(
-                egui::RichText::new("No linearisation data on device yet")
-                    .size(13.0).color(widgets::muted_text(dark))
-            );
-        }
-        // Refresh button to re-read linearisation table from device
-        if ui.small_button("Refresh").clicked() {
-            send_tracked(state, ble, BleCommand::ReadAll(uuids::all_calibration_uuids()));
-            send_tracked(state, ble, BleCommand::ReadCharacteristic(uuids::char_lin_points()));
-        }
-    });
 }
 
 /// Reverse-engineer calibration points from the device's linearisation table
