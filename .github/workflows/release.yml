@@ -36,9 +36,10 @@ jobs:
           $version = "${{ github.ref_name }}".TrimStart("v")
           Write-Host "Version: $version"
 
-          # Update Cargo.toml
-          (Get-Content Cargo.toml) -replace 'version = ".*?"', "version = `"$version`"" |
-            Set-Content Cargo.toml
+          # Update Cargo.toml - only the [package] version (starts at column 0)
+          $cargo = Get-Content Cargo.toml -Raw
+          $cargo = $cargo -replace '(?m)^version = "\d+\.\d+\.\d+"', "version = `"$version`""
+          Set-Content Cargo.toml -Value $cargo -NoNewline
 
           # Update Inno Setup script
           (Get-Content installer\b24-tool-setup.iss) -replace '#define MyAppVersion ".*?"', "#define MyAppVersion `"$version`"" |
